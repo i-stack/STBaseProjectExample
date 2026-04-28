@@ -8,7 +8,7 @@
 import UIKit
 import STBaseProject
 
-final class STTextControlsTestViewController: STBaseViewController {
+final class STTextControlsTestViewController: BaseViewController {
     
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
@@ -16,9 +16,6 @@ final class STTextControlsTestViewController: STBaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         self.titleLabel.text = "文本控件测试"
-        self.st_showNavBtnType(type: .showLeftBtn)
-        self.leftBtn.setImage(UIImage(systemName: "chevron.left"), for: .normal)
-        self.view.backgroundColor = .systemGroupedBackground
         self.setupScrollView()
         self.setupSamples()
     }

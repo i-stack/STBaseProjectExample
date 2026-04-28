@@ -3,26 +3,23 @@
 //  STBaseProject_Example
 //
 //  Created by 寒江孤影 on 2022/8/4.
-//  Copyright © 2022 STBaseProject. All rights reserved.
 //
 
 import UIKit
 import STBaseProject
 
-class STHudViewController: STBaseViewController {
+class STHudViewController: BaseViewController {
 
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
     
-    deinit {
+    @MainActor deinit {
         STLog("STNextViewController dealloc")
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         self.titleLabel.text = "HUD 测试"
-        self.st_showNavBtnType(type: .showLeftBtn)
-        self.leftBtn.setImage(UIImage(systemName: "chevron.left"), for: .normal)
         self.setupScrollView()
         self.setupButtons()
     }

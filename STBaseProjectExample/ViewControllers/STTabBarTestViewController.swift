@@ -8,7 +8,7 @@
 import UIKit
 import STBaseProject
 
-final class STTabBarTestViewController: STBaseViewController {
+final class STTabBarTestViewController: BaseViewController {
     
     private let customTabBar = STCustomTabBar()
     private let statusLabel = UILabel()
@@ -16,9 +16,6 @@ final class STTabBarTestViewController: STBaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         self.titleLabel.text = "TabBar 测试"
-        self.st_showNavBtnType(type: .showLeftBtn)
-        self.leftBtn.setImage(UIImage(systemName: "chevron.left"), for: .normal)
-        self.view.backgroundColor = .systemGroupedBackground
         self.setupViews()
         self.setupTabBar()
     }

@@ -3,13 +3,12 @@
 //  STBaseProject_Example
 //
 //  Created by 寒江孤影 on 2026/4/27.
-//  Copyright © 2026 STBaseProject. All rights reserved.
 //
 
 import UIKit
 import STBaseProject
 
-final class STBtnTestViewController: STBaseViewController {
+final class STBtnTestViewController: BaseViewController {
     
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
@@ -17,9 +16,6 @@ final class STBtnTestViewController: STBaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         self.titleLabel.text = "STBtn 测试"
-        self.st_showNavBtnType(type: .showLeftBtn)
-        self.leftBtn.setImage(UIImage(systemName: "chevron.left"), for: .normal)
-        self.view.backgroundColor = .systemGroupedBackground
         self.setupScrollView()
         self.setupButtons()
     }

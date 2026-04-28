@@ -8,16 +8,13 @@
 import UIKit
 import STBaseProject
 
-final class STViewTestViewController: STBaseViewController {
+final class STViewTestViewController: BaseViewController {
     
     private let stackView = UIStackView()
     
     override func viewDidLoad() {
         super.viewDidLoad()
         self.titleLabel.text = "STView 测试"
-        self.st_showNavBtnType(type: .showLeftBtn)
-        self.leftBtn.setImage(UIImage(systemName: "chevron.left"), for: .normal)
-        self.view.backgroundColor = .systemGroupedBackground
         self.setupStackView()
         self.setupSamples()
     }

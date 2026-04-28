@@ -8,7 +8,7 @@
 import UIKit
 import STBaseProject
 
-final class STButtonControlsTestViewController: STBaseViewController {
+final class STButtonControlsTestViewController: BaseViewController {
     
     private let stackView = UIStackView()
     private let verificationButton = STVerificationCodeBtn(type: .custom)
@@ -16,9 +16,6 @@ final class STButtonControlsTestViewController: STBaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         self.titleLabel.text = "按钮子类测试"
-        self.st_showNavBtnType(type: .showLeftBtn)
-        self.leftBtn.setImage(UIImage(systemName: "chevron.left"), for: .normal)
-        self.view.backgroundColor = .systemGroupedBackground
         self.setupStackView()
         self.setupSamples()
     }

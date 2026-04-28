@@ -3,13 +3,12 @@
 //  STBaseProject_Example
 //
 //  Created by 寒江孤影 on 2022/8/4.
-//  Copyright © 2022 STBaseProject. All rights reserved.
 //
 
 import UIKit
 import STBaseProject
 
-final class STLogViewController: STBaseViewController {
+final class STLogViewController: BaseViewController {
 
     private var timer: Timer?
     private let logView = STLogView()
@@ -18,16 +17,14 @@ final class STLogViewController: STBaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         self.view.backgroundColor = .systemBackground
-        self.setupNavBar()
+        self.setupNavBarItems()
         self.setupLogView()
         self.seedInitialLogs()
         self.startAutoLogging()
         self.logNetworkSample()
     }
 
-    private func setupNavBar() {
-        self.st_showNavBtnType(type: .showLeftBtn)
-        self.leftBtn.setImage(UIImage(systemName: "chevron.left"), for: .normal)
+    private func setupNavBarItems() {
         let randomBtn = self.makeNavButton(title: "随机日志", action: #selector(addRandomLog))
         let burstBtn = self.makeNavButton(title: "批量注入", action: #selector(addBurstLogs))
         let stack = UIStackView(arrangedSubviews: [burstBtn, randomBtn])
@@ -141,7 +138,7 @@ final class STLogViewController: STBaseViewController {
         }
     }
 
-    deinit {
+    @MainActor deinit {
         self.timer?.invalidate()
     }
 }
