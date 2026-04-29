@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		24E42D55FA269510FCC339D8 /* Pods_STBaseProjectExample.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9585ED53167BB872ED6FAED0 /* Pods_STBaseProjectExample.framework */; };
 		3BC33DCE6667208FB2C173D7 /* Pods_STBaseProjectExampleTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0283393535FD1ACC2B18EBC8 /* Pods_STBaseProjectExampleTests.framework */; };
+		CAAB0100000000000000AA01 /* STContacts in Frameworks */ = {isa = PBXBuildFile; productRef = CAAB0100000000000000AA00 /* STContacts */; };
+		CAAB0200000000000000AA01 /* STMedia in Frameworks */ = {isa = PBXBuildFile; productRef = CAAB0200000000000000AA00 /* STMedia */; };
 		E4EEED8B2FA0B5D300730900 /* STBaseProject in Frameworks */ = {isa = PBXBuildFile; productRef = E4EEED8A2FA0B5D300730900 /* STBaseProject */; };
 		F0B670DF2C171EB57F86C428 /* Pods_STBaseProjectExample_STBaseProjectExampleUITests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2ECB33F317DD5400A18A89B8 /* Pods_STBaseProjectExample_STBaseProjectExampleUITests.framework */; };
 /* End PBXBuildFile section */
@@ -90,6 +92,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CAAB0100000000000000AA01 /* STContacts in Frameworks */,
+				CAAB0200000000000000AA01 /* STMedia in Frameworks */,
 				3BC33DCE6667208FB2C173D7 /* Pods_STBaseProjectExampleTests.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -195,6 +199,10 @@
 				E4EEECEC2FA0B1AD00730900 /* STBaseProjectExampleTests */,
 			);
 			name = STBaseProjectExampleTests;
+			packageProductDependencies = (
+				CAAB0100000000000000AA00 /* STContacts */,
+				CAAB0200000000000000AA00 /* STMedia */,
+			);
 			productName = STBaseProjectExampleTests;
 			productReference = E4EEECE92FA0B1AD00730900 /* STBaseProjectExampleTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -723,6 +731,16 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		CAAB0100000000000000AA00 /* STContacts */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E4EEED892FA0B5D300730900 /* XCLocalSwiftPackageReference "../STBaseProject" */;
+			productName = STContacts;
+		};
+		CAAB0200000000000000AA00 /* STMedia */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E4EEED892FA0B5D300730900 /* XCLocalSwiftPackageReference "../STBaseProject" */;
+			productName = STMedia;
+		};
 		E4EEED8A2FA0B5D300730900 /* STBaseProject */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = STBaseProject;

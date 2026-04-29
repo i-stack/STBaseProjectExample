@@ -35,6 +35,28 @@ private final class MockImageLoader: STMarkdownImageLoading {
     }
 }
 
+private final class CancellableMockImageLoader: STMarkdownCancellableImageLoading {
+    private(set) var cancellable = MockImageCancellable()
+    private(set) var requestedURL: URL?
+
+    func loadImage(from url: URL, completion: @escaping @Sendable (UIImage?) -> Void) {
+        _ = self.loadCancellableImage(from: url, completion: completion)
+    }
+
+    func loadCancellableImage(from url: URL, completion: @escaping @Sendable (UIImage?) -> Void) -> STMarkdownImageLoadCancellable? {
+        self.requestedURL = url
+        return self.cancellable
+    }
+}
+
+private final class MockImageCancellable: STMarkdownImageLoadCancellable {
+    private(set) var didCancel = false
+
+    func cancel() {
+        self.didCancel = true
+    }
+}
+
 final class STMarkdownPipelineTests: XCTestCase {
 
     func testInputSanitizerConvertsHtmlLinkToMarkdown() {
@@ -948,6 +970,85 @@ final class STMarkdownPipelineTests: XCTestCase {
         view.reset()
 
         XCTAssertTrue(view.rawMarkdown.isEmpty)
+    }
+
+    func testStaticTextViewAddsTableOverlayForViewBasedAttachment() {
+        let style = STMarkdownStyle(
+            font: .systemFont(ofSize: 16),
+            textColor: .label,
+            lineHeight: 24,
+            kern: 0,
+            renderWidth: 320
+        )
+        let view = STMarkdownTextView(
+            style: style,
+            advancedRenderers: STMarkdownPresets.defaultAdvancedRenderers
+        )
+        view.frame = CGRect(x: 0, y: 0, width: 320, height: 240)
+
+        view.setMarkdown(
+            """
+            | A | B |
+            |---|---|
+            | 1 | 2 |
+            """
+        )
+        view.layoutIfNeeded()
+
+        let tableOverlayCount = view.contentTextView.subviews
+            .compactMap { $0 as? STMarkdownTableView }
+            .count
+        XCTAssertEqual(tableOverlayCount, 1)
+    }
+
+    func testStreamingTextViewAddsTableOverlayForViewBasedAttachment() {
+        let style = STMarkdownStyle(
+            font: .systemFont(ofSize: 16),
+            textColor: .label,
+            lineHeight: 24,
+            kern: 0,
+            renderWidth: 320
+        )
+        let view = STMarkdownStreamingTextView(
+            style: style,
+            advancedRenderers: STMarkdownPresets.defaultAdvancedRenderers
+        )
+        view.frame = CGRect(x: 0, y: 0, width: 320, height: 240)
+
+        view.setMarkdown(
+            """
+            | A | B |
+            |---|---|
+            | 1 | 2 |
+            """,
+            animated: false
+        )
+        view.layoutIfNeeded()
+
+        let tableOverlayCount = view.contentTextView.subviews
+            .compactMap { $0 as? STMarkdownTableView }
+            .count
+        XCTAssertEqual(tableOverlayCount, 1)
+    }
+
+    func testAsyncImageAttachmentCancelsLoaderWhenReleased() {
+        let loader = CancellableMockImageLoader()
+
+        autoreleasepool {
+            let attributed = STMarkdownAsyncImageRenderer(loader: loader).renderImage(
+                url: "https://example.com/image.png",
+                altText: "",
+                title: nil,
+                style: .default,
+                inline: true
+            )
+
+            XCTAssertEqual(loader.requestedURL?.absoluteString, "https://example.com/image.png")
+            XCTAssertNotNil(attributed)
+            XCTAssertFalse(loader.cancellable.didCancel)
+        }
+
+        XCTAssertTrue(loader.cancellable.didCancel)
     }
 
     // MARK: - Sendable Conformance Tests
