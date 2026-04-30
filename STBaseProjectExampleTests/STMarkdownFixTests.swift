@@ -1,9 +1,4 @@
 //
-//  STMarkdownFixTests.swift
-//  STBaseProjectExampleTests
-//
-//  Created by 寒江孤影 on 2026/04/29.
-//
 //  验证以下三个 Bug 修复：
 //  1. STMarkdownMermaidRenderer.cacheKey 使用完整代码字符串，不再用 hashValue，消除碰撞风险
 //  2. STMarkdownTableViewModel 使用静态正则常量，不再在热路径重复编译

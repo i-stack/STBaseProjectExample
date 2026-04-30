@@ -1,10 +1,3 @@
-//
-//  STBaseProjectExampleTests.swift
-//  STBaseProjectExampleTests
-//
-//  Created by 寒江孤影 on 2026/4/28.
-//
-
 import Testing
 @testable import STBaseProjectExample
 
@@ -15,5 +8,4 @@ struct STBaseProjectExampleTests {
         // Swift Testing Documentation
         // https://developer.apple.com/documentation/testing
     }
-
 }

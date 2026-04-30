@@ -1,10 +1,3 @@
-//
-//  STMarkdownPipelineTests.swift
-//  STBaseProjectTests
-//
-//  Created by 寒江孤影 on 2019/03/16.
-//
-
 import XCTest
 import STBaseProject
 @testable import STBaseProjectExample

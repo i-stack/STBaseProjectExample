@@ -1,8 +1,3 @@
-//
-//  STMediaTests.swift
-//  STBaseProjectExampleTests
-//
-
 import XCTest
 import STMedia
 
