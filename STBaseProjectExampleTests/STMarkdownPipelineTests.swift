@@ -1270,7 +1270,7 @@ final class STMarkdownPipelineTests: XCTestCase {
         var context = STMarkdownPreprocessContext()
 
         let result = rule.apply(
-            to: #"<a href=\"https://example.com\"><strong>Example</strong></a>"#,
+            to: #"<a href="https://example.com"><strong>Example</strong></a>"#,
             context: &context
         )
 
