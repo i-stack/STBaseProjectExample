@@ -139,6 +139,54 @@ final class STMarkdownPipelineTests: XCTestCase {
         XCTAssertEqual(inlines, [.text("A"), .softBreak, .text("B")])
     }
 
+    func testSoftBreakCollapsingNormalizerRecursivelyNormalizesNestedChildren() {
+        let document = STMarkdownDocument(
+            blocks: [
+                .quote([
+                    .paragraph([
+                        .text("outer"),
+                        .softBreak,
+                        .softBreak,
+                        .text("tail"),
+                    ]),
+                    .list(
+                        kind: .unordered,
+                        items: [
+                            STMarkdownListItemNode(
+                                blocks: [
+                                    .paragraph([
+                                        .text("item"),
+                                        .softBreak,
+                                        .softBreak,
+                                        .text("end"),
+                                    ])
+                                ]
+                            )
+                        ]
+                    ),
+                ])
+            ]
+        )
+        let normalizer = STMarkdownSoftBreakCollapsingNormalizer()
+
+        let normalized = normalizer.normalize(document)
+
+        guard case .quote(let blocks)? = normalized.blocks.first else {
+            return XCTFail("Expected quote block")
+        }
+        guard case .paragraph(let outer)? = blocks.first else {
+            return XCTFail("Expected first quote child to be paragraph")
+        }
+        XCTAssertEqual(outer, [.text("outer"), .softBreak, .text("tail")])
+
+        guard case .list(_, let items)? = blocks.last,
+              case .paragraph(let nested)? = items.first?.blocks.first
+        else {
+            return XCTFail("Expected list paragraph in quote")
+        }
+        XCTAssertEqual(nested, [.text("item"), .softBreak, .text("end")])
+    }
+
     func testAttributedStringRendererUsesDistinctBoldFontForStrongText() {
         let renderer = STMarkdownAttributedStringRenderer()
         let document = STMarkdownRenderDocument(
@@ -902,6 +950,27 @@ final class STMarkdownPipelineTests: XCTestCase {
         XCTAssertTrue(result.text.contains("not math"))
     }
 
+    func testMathNormalizerExtractsBracketAndEnvironmentBlocks() {
+        let input = """
+        前文
+        \\[
+        a+b
+        \\]
+
+        \\begin{align}
+        x &= y + z
+        \\end{align}
+        """
+        let result = STMarkdownMathNormalizer.normalizeBlocks(in: input)
+
+        XCTAssertEqual(result.blockMap.count, 2)
+        XCTAssertTrue(result.text.contains("{{ST_MATH_BLOCK:0}}"))
+        XCTAssertTrue(result.text.contains("{{ST_MATH_BLOCK:1}}"))
+        XCTAssertEqual(result.blockMap[0], "a+b")
+        XCTAssertTrue(result.blockMap[1]?.contains("\\begin{align}") == true)
+        XCTAssertTrue(result.blockMap[1]?.contains("\\end{align}") == true)
+    }
+
     func testInlineMathSplitProducesCorrectNodes() {
         let nodes = STMarkdownMathNormalizer.splitInlineMath(in: #"结果 \(x+y\) 结束"#)
 
@@ -941,6 +1010,41 @@ final class STMarkdownPipelineTests: XCTestCase {
             return XCTFail("Expected nested list at level 2")
         }
         XCTAssertEqual(level2Items.first?.level, 2)
+    }
+
+    func testStructureParserSplitsMixedTextAndMathBlockIntoSeparateBlocks() {
+        let parser = STMarkdownStructureParser()
+        let document = parser.parse(
+            """
+            开头
+
+            $$
+            x^2 + y^2 = z^2
+            $$
+
+            结尾
+            """
+        )
+
+        XCTAssertEqual(document.blocks.count, 3)
+        XCTAssertEqual(document.blocks[0], .paragraph([.text("开头")]))
+        XCTAssertEqual(document.blocks[1], .mathBlock("x^2 + y^2 = z^2"))
+        XCTAssertEqual(document.blocks[2], .paragraph([.text("结尾")]))
+    }
+
+    func testInputSanitizerDoesNotInjectTableDelimiterInsideCodeFence() {
+        let sanitizer = STMarkdownInputSanitizer(rules: [STTableDelimiterNormalizationRule()])
+        let input = """
+        ```markdown
+        | A | B |
+        | 1 | 2 |
+        ```
+        """
+
+        let result = sanitizer.sanitize(input)
+
+        XCTAssertEqual(result.sanitizedText, input)
+        XCTAssertFalse(result.appliedRules.contains("STTableDelimiterNormalizationRule"))
     }
 
     // MARK: - Streaming View Tests
@@ -1067,5 +1171,442 @@ final class STMarkdownPipelineTests: XCTestCase {
         )
         let sendableCheck: any Sendable = result
         XCTAssertNotNil(sendableCheck)
+    }
+
+    // MARK: - STHtmlNormalizeRule 补齐
+
+    func testHtmlNormalizeRuleReplacesBrWithHardBreak() {
+        let rule = STHtmlNormalizeRule()
+        var context = STMarkdownPreprocessContext()
+
+        let result = rule.apply(to: "第一行<br>第二行<br/>第三行<BR />第四行", context: &context)
+
+        XCTAssertFalse(result.contains("<br"), "<br> 系列标签应全部被替换")
+        XCTAssertFalse(result.contains("</br>"))
+        // CommonMark 硬换行是行尾两空格 + \n；这里至少三处换行
+        let newlineCount = result.filter { $0 == "\n" }.count
+        XCTAssertEqual(newlineCount, 3, "三个 <br> 应被替换为三次换行")
+    }
+
+    func testHtmlNormalizeRuleRewritesEmptyClosingTagToAnchor() {
+        let rule = STHtmlNormalizeRule()
+        var context = STMarkdownPreprocessContext()
+
+        let result = rule.apply(to: "<a href=\"https://x.com\">链接</>", context: &context)
+
+        XCTAssertFalse(result.contains("</>"), "`</>` 应被改写")
+        XCTAssertTrue(result.contains("</a>"), "`</>` 应被改写为 `</a>`")
+    }
+
+    func testHtmlNormalizeRuleUnescapesCRAndCRLF() {
+        let rule = STHtmlNormalizeRule()
+        var context = STMarkdownPreprocessContext()
+
+        // 注意：escapedCR/escapedLF 都带 `(?![A-Za-z])` 负前瞻，避免误吃 `\rest` 这种 LaTeX 命令；
+        // 因此构造样例时单独的 `\r` 后必须不是字母——这里用空格。
+        let input = "A\\r\\nB\\r 尾"
+        let result = rule.apply(to: input, context: &context)
+
+        XCTAssertFalse(result.contains("\\r"), "`\\r\\n` 与 `\\r `（非字母后续）应被消费")
+        XCTAssertFalse(result.contains("\\n"))
+        // `\r\n` → 换行；`\r ` → 换行（保留尾随空格）
+        XCTAssertTrue(result.contains("A\nB\n"), "应把转义换行序列还原为真实换行")
+    }
+
+    func testHtmlNormalizeRuleShouldApplyGatesByCheapCheck() {
+        let rule = STHtmlNormalizeRule()
+        XCTAssertFalse(rule.shouldApply(to: "纯中文，无任何 HTML/转义"))
+        XCTAssertTrue(rule.shouldApply(to: "含 <br> 的输入"))
+        XCTAssertTrue(rule.shouldApply(to: #"含 \" 的输入"#))
+        XCTAssertTrue(rule.shouldApply(to: #"含 \/ 的输入"#))
+        XCTAssertTrue(rule.shouldApply(to: #"含 \n 的输入"#))
+    }
+
+    // MARK: - STHtmlLinkToMarkdownRule 补齐
+
+    func testHtmlLinkRuleFallsBackToTitleWhenSchemeIsDangerous() {
+        let rule = STHtmlLinkToMarkdownRule()
+        var context = STMarkdownPreprocessContext()
+
+        // javascript: 被拒绝 → 只保留可见 title
+        let input = #"<a href="javascript:alert(1)">点我</a>"#
+        let result = rule.apply(to: input, context: &context)
+
+        XCTAssertFalse(result.contains("javascript"), "dangerous scheme 不应泄漏进输出")
+        XCTAssertFalse(result.contains("<a "), "原始 <a> 应被消费")
+        XCTAssertFalse(result.contains("]("), "不应被转换为 markdown 链接语法")
+        XCTAssertTrue(result.contains("点我"), "title 必须保留")
+    }
+
+    func testHtmlLinkRuleFallsBackToTitleWhenUrlHasNoHost() {
+        let rule = STHtmlLinkToMarkdownRule()
+        var context = STMarkdownPreprocessContext()
+
+        // 无 host → parsedURL.host == nil → 仅保留 title
+        let input = #"<a href="http:///path">t</a>"#
+        let result = rule.apply(to: input, context: &context)
+
+        XCTAssertFalse(result.contains("<a "))
+        XCTAssertFalse(result.contains("]("), "无 host 不应合成 markdown 链接")
+        XCTAssertTrue(result.contains("t"))
+    }
+
+    // MARK: - STAnchorCleanupRule 补齐
+
+    func testAnchorCleanupRuleKeepsAnchorWhenFragmentContainsHttp() {
+        let rule = STAnchorCleanupRule()
+        var context = STMarkdownPreprocessContext()
+
+        // href="#http..." 的 anchor 是真实引用，不应被清理
+        let input = ##"前<a href="#https://ref">ref</a>后"##
+        let result = rule.apply(to: input, context: &context)
+
+        XCTAssertTrue(result.contains("<a"), "fragment 含 http 时，anchor 不应被删除")
+        XCTAssertTrue(result.contains("ref"))
+    }
+
+    // MARK: - STPageReferenceCleanupRule 补齐
+
+    func testPageReferenceRuleRemovesChineseBracketVariants() {
+        let rule = STPageReferenceCleanupRule()
+        var context = STMarkdownPreprocessContext()
+
+        // 中文/西文括号 + Markdown 链接 `[...](#…)` 形式：整段（含括号）应被清理。
+        let bracketWrapped: [(input: String, kept: String)] = [
+            ("前文【[第3页](#a)】后文",      "前文后文"),
+            ("前文《[页面5](#b)》后文",      "前文后文"),
+            ("前文「[引用网页2](#c)」后文",   "前文后文"),
+            ("前文『[参考7](#d)』后文",      "前文后文"),
+            ("前文（[见5页](#e)）后文",      "前文后文"),
+        ]
+        for (input, expected) in bracketWrapped {
+            let result = rule.apply(to: input, context: &context)
+            XCTAssertEqual(
+                result,
+                expected,
+                "输入 `\(input)` 应被清理为 `\(expected)`，实际 `\(result)`"
+            )
+        }
+
+        // 裸 `[webpage N]` / 嵌套 `[[webpage N]]` 形式：仅消除内部引用，外层定界符不属于该规则的责任范围。
+        let bareWebpage: [(input: String, contains: String, mustNot: String)] = [
+            ("前文 [webpage 1] 后文",       "前文",   "webpage"),
+            ("前文 [[webpage 3]] 后文",     "前文",   "webpage"),
+        ]
+        for (input, contains, mustNot) in bareWebpage {
+            let result = rule.apply(to: input, context: &context)
+            XCTAssertFalse(result.contains(mustNot), "输入 `\(input)` 中 `\(mustNot)` 应被清理")
+            XCTAssertTrue(result.contains(contains))
+        }
+    }
+
+    func testPageReferenceRuleConvergesWithinIterationCap() {
+        // 嵌套包裹 → 规则内的循环应在有限迭代内收敛：`webpage` 被连根拔除；
+        // 外层裸 `[]` / 括号不属于该规则责任范围，允许残留。
+        let rule = STPageReferenceCleanupRule()
+        var context = STMarkdownPreprocessContext()
+
+        let input = "A （[[webpage 1]]）B"
+        let result = rule.apply(to: input, context: &context)
+
+        XCTAssertFalse(result.contains("webpage"), "所有 webpage 引用应被清理")
+        XCTAssertTrue(result.contains("A"))
+        XCTAssertTrue(result.contains("B"))
+    }
+
+    // MARK: - STTableDelimiterNormalizationRule 补齐：列数不匹配不合成
+
+    func testTableDelimiterRuleDoesNotSynthesizeWhenColumnCountMismatch() {
+        let rule = STTableDelimiterNormalizationRule()
+        var context = STMarkdownPreprocessContext()
+
+        // 前一行 2 列，后一行 3 列 → 按照注释里的安全阀，不应误合成 delimiter
+        let input = "| A | B |\n| 1 | 2 | 3 |"
+        let result = rule.apply(to: input, context: &context)
+
+        XCTAssertFalse(
+            result.contains("| --- |"),
+            "列数不匹配时不应插入 delimiter，实际：\(result)"
+        )
+    }
+
+    func testTableDelimiterRuleDoesNotSynthesizeForSingleColumnRows() {
+        let rule = STTableDelimiterNormalizationRule()
+        var context = STMarkdownPreprocessContext()
+
+        // 两行都只有 1 列 → columnCount >= 2 guard 阻止合成
+        let input = "| A |\n| 1 |"
+        let result = rule.apply(to: input, context: &context)
+
+        XCTAssertFalse(
+            result.contains("---"),
+            "单列行不应被改写为表格"
+        )
+    }
+
+    // MARK: - STMarkdownInputSanitizer 短路 / 空输入
+
+    func testInputSanitizerShortCircuitsOnEmptyInput() {
+        let sanitizer = STMarkdownInputSanitizer(rules: [STHtmlNormalizeRule()])
+        let result = sanitizer.sanitize("")
+
+        XCTAssertEqual(result.originalText, "")
+        XCTAssertEqual(result.sanitizedText, "")
+        XCTAssertTrue(result.appliedRules.isEmpty, "空输入应跳过所有规则")
+    }
+
+    func testInputSanitizerDoesNotRecordRuleWhenApplyIsNoOp() {
+        // shouldApply 返回 true 但 apply 没有实质修改时，不应记入 appliedRules
+        let sanitizer = STMarkdownInputSanitizer(
+            rules: [STDoubleNewlineRule()]
+        )
+        // 输入不含 3 个以上连续换行，规则的 shouldApply 就会 false → appliedRules 为空
+        let result = sanitizer.sanitize("A\n\nB")
+        XCTAssertFalse(result.appliedRules.contains("STDoubleNewlineRule"))
+        XCTAssertEqual(result.sanitizedText, "A\n\nB")
+    }
+
+    // MARK: - STMarkdownMathNormalizer 补齐
+
+    func testMathNormalizerHandlesSameLineDollarBlock() {
+        // $$formula$$ 同行开闭
+        let input = "前文\n\n$$a+b$$\n\n后文"
+        let result = STMarkdownMathNormalizer.normalizeBlocks(in: input)
+
+        XCTAssertEqual(result.blockMap.count, 1, "同行 $$...$$ 应被识别为块公式")
+        XCTAssertEqual(result.blockMap[0], "a+b")
+        XCTAssertTrue(result.text.contains("{{ST_MATH_BLOCK:0}}"))
+    }
+
+    func testMathNormalizerHandlesSameLineBracketBlock() {
+        // \[formula\] 同行开闭
+        let input = #"前文\n\n\[x=1\]\n\n后文"#
+            .replacingOccurrences(of: "\\n", with: "\n")
+        let result = STMarkdownMathNormalizer.normalizeBlocks(in: input)
+
+        XCTAssertEqual(result.blockMap.count, 1, "同行 \\[...\\] 应被识别为块公式")
+        XCTAssertEqual(result.blockMap[0], "x=1")
+    }
+
+    func testMathNormalizerHandlesUnterminatedDollarBlockAsEof() {
+        // $$ 未闭合 → 到 EOF 也应完成收集，不崩溃
+        let input = "前文\n\n$$\nE = mc^2\n继续一行"
+        let result = STMarkdownMathNormalizer.normalizeBlocks(in: input)
+
+        XCTAssertEqual(result.blockMap.count, 1, "未闭合块应兜底产出一条")
+        XCTAssertTrue(result.blockMap[0]?.contains("E = mc^2") == true)
+    }
+
+    func testMathNormalizerRecognizesMultipleMathEnvironments() {
+        let environments = ["equation", "gather", "cases", "pmatrix"]
+        for env in environments {
+            let input = """
+            前文
+
+            \\begin{\(env)}
+            x
+            \\end{\(env)}
+
+            后文
+            """
+            let result = STMarkdownMathNormalizer.normalizeBlocks(in: input)
+            XCTAssertEqual(result.blockMap.count, 1, "环境 \(env) 应被识别")
+            XCTAssertTrue(
+                result.blockMap[0]?.contains("\\begin{\(env)}") == true,
+                "应保留 \\begin{\(env)}"
+            )
+            XCTAssertTrue(
+                result.blockMap[0]?.contains("\\end{\(env)}") == true,
+                "应保留 \\end{\(env)}"
+            )
+        }
+    }
+
+    func testMathNormalizerIgnoresUnsupportedEnvironment() {
+        // 未注册的环境不应被当作 math block，应当作普通文本保留
+        let input = """
+        前文
+
+        \\begin{foo}
+        x
+        \\end{foo}
+
+        后文
+        """
+        let result = STMarkdownMathNormalizer.normalizeBlocks(in: input)
+        XCTAssertTrue(result.blockMap.isEmpty, "未支持的环境不应被抽成 math block")
+        XCTAssertTrue(result.text.contains("\\begin{foo}"))
+        XCTAssertTrue(result.text.contains("\\end{foo}"))
+    }
+
+    func testSplitInlineMathRecognizesBracketDisplayModeInline() {
+        // 行内 \[x\] 应被识别为 isDisplayMode == true
+        let nodes = STMarkdownMathNormalizer.splitInlineMath(in: #"前 \[a+b\] 后"#)
+
+        XCTAssertEqual(nodes.count, 3)
+        XCTAssertEqual(nodes[0], .text("前 "))
+        XCTAssertEqual(nodes[1], .inlineMath("a+b", isDisplayMode: true))
+        XCTAssertEqual(nodes[2], .text(" 后"))
+    }
+
+    func testSplitInlineMathReturnsEmptyForEmptyInput() {
+        let nodes = STMarkdownMathNormalizer.splitInlineMath(in: "")
+        XCTAssertTrue(nodes.isEmpty, "空输入应返回空数组")
+    }
+
+    func testSplitInlineMathReturnsSingleTextWhenNoFormula() {
+        let nodes = STMarkdownMathNormalizer.splitInlineMath(in: "纯文本")
+        XCTAssertEqual(nodes, [.text("纯文本")])
+    }
+
+    // MARK: - STMarkdownSoftBreakCollapsingNormalizer 补齐
+
+    func testSoftBreakNormalizerCollapsesInsideHeading() {
+        let document = STMarkdownDocument(
+            blocks: [
+                .heading(level: 2, content: [
+                    .text("A"),
+                    .softBreak,
+                    .softBreak,
+                    .text("B"),
+                ])
+            ]
+        )
+        let normalized = STMarkdownSoftBreakCollapsingNormalizer().normalize(document)
+
+        guard case .heading(let level, let content)? = normalized.blocks.first else {
+            return XCTFail("Expected heading")
+        }
+        XCTAssertEqual(level, 2)
+        XCTAssertEqual(content, [.text("A"), .softBreak, .text("B")])
+    }
+
+    func testSoftBreakNormalizerRecursesIntoEmphasisStrongLinkStrikethrough() {
+        let document = STMarkdownDocument(
+            blocks: [
+                .paragraph([
+                    .emphasis([.text("a"), .softBreak, .softBreak, .text("b")]),
+                    .strong([.text("c"), .softBreak, .softBreak, .text("d")]),
+                    .link(destination: "https://x.com", children: [
+                        .text("e"), .softBreak, .softBreak, .text("f")
+                    ]),
+                    .strikethrough([.text("g"), .softBreak, .softBreak, .text("h")]),
+                ])
+            ]
+        )
+        let normalized = STMarkdownSoftBreakCollapsingNormalizer().normalize(document)
+
+        guard case .paragraph(let inlines)? = normalized.blocks.first else {
+            return XCTFail("Expected paragraph")
+        }
+
+        func softBreakCount(_ nodes: [STMarkdownInlineNode]) -> Int {
+            nodes.reduce(into: 0) { acc, node in
+                if case .softBreak = node { acc += 1 }
+            }
+        }
+
+        for node in inlines {
+            switch node {
+            case .emphasis(let c), .strong(let c), .strikethrough(let c):
+                XCTAssertEqual(softBreakCount(c), 1, "子节点相邻 softBreak 应被折叠")
+            case .link(_, let c):
+                XCTAssertEqual(softBreakCount(c), 1, "link 子节点相邻 softBreak 应被折叠")
+            default:
+                break
+            }
+        }
+    }
+
+    func testSemanticNormalizerPassthroughKeepsDocumentIntact() {
+        let document = STMarkdownDocument(
+            blocks: [
+                .paragraph([.text("A"), .softBreak, .softBreak, .text("B")])
+            ]
+        )
+        let normalized = STMarkdownSemanticNormalizer.passthrough.normalize(document)
+        // passthrough 应原样返回，不折叠相邻 softBreak
+        XCTAssertEqual(normalized, document)
+    }
+
+    func testSemanticNormalizerChainsMultipleNormalizersInOrder() {
+        struct TagNormalizer: STMarkdownSemanticNormalizing {
+            let tag: String
+            func normalize(_ document: STMarkdownDocument) -> STMarkdownDocument {
+                let blocks = document.blocks.map { block -> STMarkdownBlockNode in
+                    if case .paragraph(let inlines) = block {
+                        return .paragraph(inlines + [.text(self.tag)])
+                    }
+                    return block
+                }
+                return STMarkdownDocument(blocks: blocks)
+            }
+        }
+
+        let composite = STMarkdownSemanticNormalizer(
+            normalizers: [TagNormalizer(tag: "_1"), TagNormalizer(tag: "_2")]
+        )
+        let normalized = composite.normalize(
+            STMarkdownDocument(blocks: [.paragraph([.text("X")])])
+        )
+
+        guard case .paragraph(let inlines)? = normalized.blocks.first else {
+            return XCTFail("Expected paragraph")
+        }
+        XCTAssertEqual(inlines, [.text("X"), .text("_1"), .text("_2")],
+                       "normalizer 应按注册顺序依次应用")
+    }
+
+    // MARK: - STMarkdownRenderListItem 契约
+
+    func testRenderListItemContentAndChildBlocksWhenFirstBlockIsNotParagraph() {
+        // 以 codeBlock 开头 → content 返回 []，childBlocks 返回全部 blocks
+        let codeFirst = STMarkdownRenderListItem(
+            blocks: [
+                .codeBlock(language: "swift", code: "x"),
+                .paragraph([.text("尾段")]),
+            ],
+            ordered: false,
+            level: 0,
+            orderedIndex: nil
+        )
+        XCTAssertTrue(codeFirst.content.isEmpty, "首块非 paragraph 时 content 应为空")
+        XCTAssertEqual(codeFirst.childBlocks.count, 2,
+                       "首块非 paragraph 时 childBlocks 应返回完整 blocks")
+    }
+
+    func testRenderListItemContentAndChildBlocksWhenFirstBlockIsParagraph() {
+        let paraFirst = STMarkdownRenderListItem(
+            blocks: [
+                .paragraph([.text("首段")]),
+                .codeBlock(language: nil, code: "x"),
+            ],
+            ordered: false,
+            level: 0,
+            orderedIndex: nil
+        )
+        XCTAssertEqual(paraFirst.content, [.text("首段")])
+        XCTAssertEqual(paraFirst.childBlocks.count, 1, "应剥掉首段后仅剩子块")
+        if case .codeBlock = paraFirst.childBlocks.first {} else {
+            XCTFail("剩余子块应为 codeBlock")
+        }
+    }
+
+    // MARK: - STMarkdownStructureParser 补齐
+
+    func testParserNormalizesLinkDestinationTrimsWhitespace() {
+        let parser = STMarkdownStructureParser()
+        // swift-markdown 不允许 destination 里有未转义空白，这里用 `<…>` 形式构造可解析的空白 destination
+        let doc = parser.parse("[t](<  https://example.com  >)")
+
+        guard case .paragraph(let inlines)? = doc.blocks.first else {
+            return XCTFail("Expected paragraph")
+        }
+        var destination: String?
+        for node in inlines {
+            if case .link(let d, _) = node { destination = d; break }
+        }
+        XCTAssertEqual(destination, "https://example.com",
+                       "normalizeLinkDestination 应去除首尾空白")
     }
 }
