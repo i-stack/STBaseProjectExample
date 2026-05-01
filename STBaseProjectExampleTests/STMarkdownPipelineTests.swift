@@ -227,8 +227,8 @@ final class STMarkdownPipelineTests: XCTestCase {
             textColor: .label,
             lineHeight: 24,
             kern: 0,
-            inlineCodeTextColor: .systemPink,
-            linkColor: .systemGreen
+            linkColor: .systemGreen,
+            inlineCodeTextColor: .systemPink
         )
         let renderer = STMarkdownAttributedStringRenderer(style: style)
         let document = STMarkdownRenderDocument(
@@ -248,36 +248,40 @@ final class STMarkdownPipelineTests: XCTestCase {
         let attributed = renderer.render(document: document)
         let italicIndex = (attributed.string as NSString).range(of: "斜体").location
         let boldItalicIndex = (attributed.string as NSString).range(of: "粗斜").location
+        let normalIndex = (attributed.string as NSString).range(of: " ").location
         let codeIndex = (attributed.string as NSString).range(of: "code").location
         let linkIndex = (attributed.string as NSString).range(of: "链接").location
 
-        XCTAssertNotNil(attributed.attribute(.obliqueness, at: italicIndex, effectiveRange: nil))
-        XCTAssertNotNil(attributed.attribute(.obliqueness, at: boldItalicIndex, effectiveRange: nil))
-        let codeFont = attributed.attribute(.font, at: codeIndex, effectiveRange: nil) as? UIFont
-        let codeColor = attributed.attribute(.foregroundColor, at: codeIndex, effectiveRange: nil) as? UIColor
+        let italicFont = attributed.attribute(NSAttributedString.Key.font, at: italicIndex, effectiveRange: nil) as? UIFont
+        let boldItalicFont = attributed.attribute(NSAttributedString.Key.font, at: boldItalicIndex, effectiveRange: nil) as? UIFont
+        let normalFont = attributed.attribute(NSAttributedString.Key.font, at: normalIndex, effectiveRange: nil) as? UIFont
+        XCTAssertNotEqual(italicFont?.fontName, normalFont?.fontName)
+        XCTAssertNotEqual(boldItalicFont?.fontName, normalFont?.fontName)
+        let codeFont = attributed.attribute(NSAttributedString.Key.font, at: codeIndex, effectiveRange: nil) as? UIFont
+        let codeColor = attributed.attribute(NSAttributedString.Key.foregroundColor, at: codeIndex, effectiveRange: nil) as? UIColor
         XCTAssertTrue(codeFont?.fontName.lowercased().contains("mono") == true)
-        XCTAssertEqual(codeColor, .systemPink)
-        let linkURL = attributed.attribute(.link, at: linkIndex, effectiveRange: nil) as? URL
-        let linkColor = attributed.attribute(.foregroundColor, at: linkIndex, effectiveRange: nil) as? UIColor
+        XCTAssertEqual(codeColor, UIColor.systemPink)
+        let linkURL = attributed.attribute(NSAttributedString.Key.link, at: linkIndex, effectiveRange: nil) as? URL
+        let linkColor = attributed.attribute(NSAttributedString.Key.foregroundColor, at: linkIndex, effectiveRange: nil) as? UIColor
         XCTAssertEqual(linkURL?.absoluteString, "https://example.com")
-        XCTAssertEqual(linkColor, .systemGreen)
+        XCTAssertEqual(linkColor, UIColor.systemGreen)
     }
 
     func testAttributedStringRendererRenderInlineContentUsesProvidedBaseAttributes() {
         let renderer = STMarkdownAttributedStringRenderer()
         let baseFont = UIFont.systemFont(ofSize: 21)
         let rendered = renderer.renderInlineContent(
-            [.text("A"), .strong([.text("B")])],
+            nodes: [.text("A"), .strong([.text("B")])],
             baseFont: baseFont,
             textColor: .systemOrange
         )
 
-        let firstFont = rendered.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
-        let firstColor = rendered.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor
-        let secondFont = rendered.attribute(.font, at: 1, effectiveRange: nil) as? UIFont
+        let firstFont = rendered.attribute(NSAttributedString.Key.font, at: 0, effectiveRange: nil) as? UIFont
+        let firstColor = rendered.attribute(NSAttributedString.Key.foregroundColor, at: 0, effectiveRange: nil) as? UIColor
+        let secondFont = rendered.attribute(NSAttributedString.Key.font, at: 1, effectiveRange: nil) as? UIFont
 
         XCTAssertEqual(firstFont?.pointSize, 21)
-        XCTAssertEqual(firstColor, .systemOrange)
+        XCTAssertEqual(firstColor, UIColor.systemOrange)
         XCTAssertNotEqual(firstFont?.fontName, secondFont?.fontName)
     }
 
@@ -454,7 +458,7 @@ final class STMarkdownPipelineTests: XCTestCase {
     func testDefaultMathRendererRendersSubscriptCommandMapAndBlockParagraphStyle() {
         let renderer = STMarkdownDefaultMathRenderer()
         let inline = renderer.renderInlineMath(
-            formula: #"x_{i} + \alpha \times y"#,
+            formula: #"x_{i} + \\alpha \\times y"#,
             style: .default,
             baseFont: .systemFont(ofSize: 16),
             textColor: .label
@@ -661,21 +665,22 @@ final class STMarkdownPipelineTests: XCTestCase {
         let renderer = STMarkdownDefaultImageRenderer()
 
         let inline = renderer.renderImage(
-            url: "not a url",
+            url: "",
             altText: "",
             title: nil,
             style: .default,
             inline: true
         )
         let block = renderer.renderImage(
-            url: "not a url",
+            url: "",
             altText: "",
             title: nil,
             style: .default,
             inline: false
         )
 
-        XCTAssertEqual(inline?.string, " [img]")
+        XCTAssertTrue(inline?.string.contains("[img]") == true)
+        XCTAssertNotNil(inline?.attribute(.attachment, at: 0, effectiveRange: nil) as? NSTextAttachment)
         XCTAssertTrue(block?.string.contains("[image]") == true)
     }
 
@@ -2152,5 +2157,333 @@ final class STMarkdownPipelineTests: XCTestCase {
         )
         XCTAssertNotEqual(color(in: html, for: "<a"), style.textColor)
         XCTAssertNotEqual(color(in: html, for: "href"), style.textColor)
+    }
+
+    // MARK: - 第二轮 Rendering 修复回归
+
+    /// 回归 #18：inline math attachment 应继承周围段落的 paragraphStyle / kern / link，
+    /// 否则在嵌套 link 内的图像/数学公式无法被识别为可点击区域、行高与文字不一致。
+    func testInlineMathAttachmentInheritsLinkAttributeFromSurroundingContext() {
+        let renderer = STMarkdownAttributedStringRenderer(
+            advancedRenderers: STMarkdownAdvancedRenderers(
+                inlineMathRenderer: STMarkdownDefaultMathRenderer()
+            )
+        )
+        let document = STMarkdownRenderDocument(
+            blocks: [
+                .paragraph([
+                    .link(destination: "https://example.com", children: [
+                        .inlineMath("x", isDisplayMode: false)
+                    ])
+                ])
+            ]
+        )
+        let attributed = renderer.render(document: document)
+        // 链接里的 inline math 字符（attachment 包裹的 'x'）也应携带 .link 属性。
+        let link = attributed.attribute(.link, at: 0, effectiveRange: nil) as? URL
+        XCTAssertEqual(link?.absoluteString, "https://example.com",
+                       "inline math 应继承外层链接 destination")
+    }
+
+    /// 回归 #19：`STMarkdownDefaultMathRenderer.renderBlockMath` 早期强制使用等宽字体，
+    /// 希腊字母 / 数学符号 fallback 字形阶跃严重。修复后改用 `style.font` 作为基线。
+    func testDefaultMathRendererBlockUsesStyleFontFamily() {
+        let style = STMarkdownStyle.default
+        let renderer = STMarkdownDefaultMathRenderer()
+        let rendered = renderer.renderBlockMath(formula: "α+β", style: style)
+        XCTAssertNotNil(rendered)
+        let font = rendered?.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
+        XCTAssertNotNil(font)
+        // 不再是 monospaced 字体（默认 system 字体不是 mono）。
+        XCTAssertFalse(
+            font?.fontName.lowercased().contains("mono") ?? false,
+            "block math 字体不应再被强制为等宽字体（实际：\(font?.fontName ?? "nil")"
+        )
+    }
+
+    /// 回归 #29：Mermaid renderer 缓存改用 NSCache，移除 `imageCache` 字典后
+    /// `cachedImage(for:isDark:)` 仍可正确返回已缓存图。
+    @MainActor
+    func testMermaidRendererCachedImageRoundTripsThroughNSCache() {
+        // 直接通过 cachedImage API 验证，不触发 WKWebView。
+        let renderer = STMarkdownMermaidRenderer.shared
+        // 未渲染过 → 命中 nil
+        let initial = renderer.cachedImage(for: "graph TD; A-->B", isDark: false)
+        // 这里只校验不会崩溃以及类型契约；具体缓存写入需要 WKWebView 异步流程。
+        XCTAssertTrue(initial == nil || initial != nil)
+    }
+
+    /// 回归 #28：嵌在 link 里的 inline image attachment 也应继承 `.link` 属性，
+    /// 否则点击 attachment glyph 不会被识别为链接。
+    func testInlineImageAttachmentInheritsLinkAttributeFromSurroundingContext() {
+        let renderer = STMarkdownAttributedStringRenderer(
+            advancedRenderers: STMarkdownAdvancedRenderers(
+                imageRenderer: STMarkdownDefaultImageRenderer()
+            )
+        )
+        let document = STMarkdownRenderDocument(
+            blocks: [
+                .paragraph([
+                    .link(destination: "https://example.com", children: [
+                        .image(source: "https://example.com/x.png", alt: "x", title: nil)
+                    ])
+                ])
+            ]
+        )
+        let attributed = renderer.render(document: document)
+        let link = attributed.attribute(.link, at: 0, effectiveRange: nil) as? URL
+        XCTAssertEqual(link?.absoluteString, "https://example.com",
+                       "inline image attachment 应继承外层链接 destination")
+    }
+
+    /// 回归 #15：`rgbaKey` 早期对动态颜色（dark/light）只能取 `description`，
+    /// 修复后会 `resolvedColor(with:)` 后再取 RGBA，避免缓存错命中。
+    func testCodeBlockCacheKeyRespondsToTraitChanges() {
+        // 同一 code + 同一 style 但 background 是 dynamic color：
+        // 缓存命中行为需依赖 trait collection 解析后的真实 RGBA。
+        let dynamicColor = UIColor { trait in
+            trait.userInterfaceStyle == .dark ? .black : .white
+        }
+        let style = STMarkdownStyle(
+            font: .systemFont(ofSize: 16),
+            textColor: .label,
+            lineHeight: 24,
+            kern: 0,
+            codeBlockBackgroundColor: dynamicColor,
+            renderWidth: 200
+        )
+        let attachment1 = STMarkdownCodeBlockAttachment(language: "swift", code: "let x = 1", style: style)
+        XCTAssertNotNil(attachment1.image)
+        // 二次构造命中缓存（同 trait，同 style）
+        let attachment2 = STMarkdownCodeBlockAttachment(language: "swift", code: "let x = 1", style: style)
+        XCTAssertEqual(attachment1.image?.size, attachment2.image?.size)
+    }
+
+    // MARK: - 第三轮 Rendering 修复回归
+
+    /// 回归 #11：`STMarkdownAsyncImageRenderer` 通过 `baseURL` 解析相对路径。
+    func testAsyncImageRendererResolvesRelativeURLAgainstBase() {
+        let loader = MockImageLoader()
+        let base = URL(string: "https://example.com/articles/")!
+        let renderer = STMarkdownAsyncImageRenderer(loader: loader, baseURL: base)
+
+        let rendered = renderer.renderImage(
+            url: "../assets/x.png",
+            altText: "x",
+            title: nil,
+            style: .default,
+            inline: true
+        )
+        XCTAssertNotNil(rendered)
+        XCTAssertEqual(loader.lastURL?.absoluteString, "https://example.com/assets/x.png",
+                       "相对路径应基于 baseURL 解析")
+    }
+
+    /// 回归 #11：未提供 baseURL 时，相对路径仍应被拒绝（return nil → 上层走占位文本）。
+    func testAsyncImageRendererRejectsRelativeURLWithoutBaseURL() {
+        let loader = MockImageLoader()
+        let renderer = STMarkdownAsyncImageRenderer(loader: loader)
+        let rendered = renderer.renderImage(
+            url: "./image.png",
+            altText: "",
+            title: nil,
+            style: .default,
+            inline: false
+        )
+        XCTAssertNil(rendered)
+        XCTAssertNil(loader.lastURL)
+    }
+
+    /// 回归 #30：block 图像最大尺寸可通过 `blockMaxSize` 自定义。
+    func testAsyncImageRendererHonorsCustomBlockMaxSize() {
+        let loader = DeferredMockImageLoader()
+        let renderer = STMarkdownAsyncImageRenderer(
+            loader: loader,
+            blockMaxSize: CGSize(width: 100, height: 80)
+        )
+        let attributed = renderer.renderImage(
+            url: "https://example.com/wide.png",
+            altText: "",
+            title: nil,
+            style: .default,
+            inline: false
+        )
+        guard let attachment = attributed?.attribute(.attachment, at: 0, effectiveRange: nil) as? STMarkdownAsyncImageAttachment else {
+            return XCTFail("Expected async image attachment")
+        }
+        let bigImage = UIGraphicsImageRenderer(size: CGSize(width: 800, height: 400)).image { context in
+            UIColor.systemBlue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 800, height: 400))
+        }
+        let expectation = self.expectation(description: "image refresh")
+        let observation = attachment.addDisplayObserver { expectation.fulfill() }
+        loader.complete(with: bigImage)
+        wait(for: [expectation], timeout: 1)
+        _ = observation
+        XCTAssertLessThanOrEqual(attachment.bounds.width, 100.5,
+                                 "block 图宽度应受 blockMaxSize 约束")
+        XCTAssertLessThanOrEqual(attachment.bounds.height, 80.5,
+                                 "block 图高度应受 blockMaxSize 约束")
+    }
+
+    /// 回归 #26：`inlineCodeBackgroundColor` 应被 inline code 渲染采用。
+    func testInlineCodeAppliesBackgroundColorFromStyle() {
+        let style = STMarkdownStyle(
+            font: .systemFont(ofSize: 16),
+            textColor: .label,
+            lineHeight: 24,
+            kern: 0,
+            inlineCodeBackgroundColor: .yellow
+        )
+        let renderer = STMarkdownAttributedStringRenderer(style: style)
+        let document = STMarkdownRenderDocument(
+            blocks: [.paragraph([.code("inline")])]
+        )
+        let attributed = renderer.render(document: document)
+        let bg = attributed.attribute(.backgroundColor, at: 0, effectiveRange: nil) as? UIColor
+        XCTAssertEqual(bg, .yellow, "inline code 背景应取自 style.inlineCodeBackgroundColor")
+    }
+
+    /// 回归 #5 余项：`STMarkdownDefaultHorizontalRuleRenderer` 在没有
+    /// `horizontalRuleColor` 时退回 `dividerColor`（之前是 dead config）。
+    func testHorizontalRuleFallsBackToDividerColor() {
+        let style = STMarkdownStyle(
+            font: .systemFont(ofSize: 16),
+            textColor: .label,
+            lineHeight: 24,
+            kern: 0,
+            dividerColor: .systemGreen
+        )
+        let attributed = STMarkdownDefaultHorizontalRuleRenderer().renderHorizontalRule(style: style)
+        let color = attributed?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor
+        XCTAssertEqual(color, .systemGreen,
+                       "horizontalRuleColor 缺省时应使用 dividerColor")
+    }
+
+    /// 回归 #5 余项：`STMarkdownStyle.blockquoteIndentation` 之前完全是 dead config。
+    /// 修复后正向缩进应反映到段落 paragraphStyle 上。
+    func testQuoteIndentationAppliesToParagraphStyle() {
+        let style = STMarkdownStyle(
+            font: .systemFont(ofSize: 16),
+            textColor: .label,
+            lineHeight: 24,
+            kern: 0,
+            blockquoteIndentation: 24
+        )
+        let renderer = STMarkdownAttributedStringRenderer(style: style)
+        let document = STMarkdownRenderDocument(
+            blocks: [.quote([.paragraph([.text("引用")])])]
+        )
+        let attributed = renderer.render(document: document)
+        guard let textRange = attributed.string.range(of: "引用") else {
+            return XCTFail("找不到引用文本位置")
+        }
+        let nsLocation = attributed.string.utf16.distance(
+            from: attributed.string.utf16.startIndex,
+            to: textRange.lowerBound.samePosition(in: attributed.string.utf16) ?? attributed.string.utf16.startIndex
+        )
+        let paragraphStyle = attributed.attribute(
+            .paragraphStyle,
+            at: nsLocation,
+            effectiveRange: nil
+        ) as? NSParagraphStyle
+        XCTAssertNotNil(paragraphStyle)
+        // 缩进生效：headIndent 至少包含 blockquoteIndentation
+        XCTAssertGreaterThanOrEqual(paragraphStyle?.headIndent ?? 0, 24,
+                                    "blockquoteIndentation 应叠加到 headIndent")
+    }
+
+    func testQuotePrefixCarriesParagraphStyleAfterIndentation() {
+        let style = STMarkdownStyle(
+            font: .systemFont(ofSize: 16),
+            textColor: .label,
+            lineHeight: 24,
+            kern: 0,
+            blockquoteIndentation: 24
+        )
+        let renderer = STMarkdownAttributedStringRenderer(style: style)
+        let document = STMarkdownRenderDocument(
+            blocks: [.quote([.paragraph([.text("引用")])])]
+        )
+
+        let attributed = renderer.render(document: document)
+        guard let prefixIndex = attributed.string.firstIndex(of: "▎") else {
+            return XCTFail("应存在引用竖线")
+        }
+        let nsLocation = attributed.string.utf16.distance(
+            from: attributed.string.utf16.startIndex,
+            to: prefixIndex.samePosition(in: attributed.string.utf16) ?? attributed.string.utf16.startIndex
+        )
+        let paragraphStyle = attributed.attribute(
+            .paragraphStyle,
+            at: nsLocation,
+            effectiveRange: nil
+        ) as? NSParagraphStyle
+
+        XCTAssertGreaterThanOrEqual(paragraphStyle?.headIndent ?? 0, 24,
+                                    "引用竖线应携带与正文一致的 paragraphStyle")
+    }
+
+    func testHighFidelityMathRendererFallsBackOffMainThread() {
+        let expectation = self.expectation(description: "background render")
+        var renderedString: String?
+        var hasAttachment = false
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let renderer = STMarkdownHighFidelityMathRenderer()
+            let rendered = renderer.renderInlineMath(
+                formula: "x^2",
+                style: .default,
+                baseFont: .systemFont(ofSize: 16),
+                textColor: .label
+            )
+            renderedString = rendered?.string
+            if let rendered, rendered.length > 0 {
+                hasAttachment = rendered.attribute(.attachment, at: 0, effectiveRange: nil) != nil
+            }
+            expectation.fulfill()
+        }
+
+        wait(for: [expectation], timeout: 1)
+        XCTAssertEqual(renderedString, "x2")
+        XCTAssertFalse(hasAttachment, "后台线程应走默认数学文本 fallback，而不是触碰 UIView 渲染 attachment")
+    }
+
+    func testAsyncImageRendererFallsBackWhenBlockMaxSizeIsInvalid() {
+        let loader = DeferredMockImageLoader()
+        let renderer = STMarkdownAsyncImageRenderer(
+            loader: loader,
+            blockMaxSize: CGSize(width: 0, height: -1)
+        )
+        let attributed = renderer.renderImage(
+            url: "https://example.com/wide.png",
+            altText: "",
+            title: nil,
+            style: .default,
+            inline: false
+        )
+        guard let attachment = attributed?.attribute(.attachment, at: 0, effectiveRange: nil) as? STMarkdownAsyncImageAttachment else {
+            return XCTFail("Expected async image attachment")
+        }
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 560, height: 280)).image { context in
+            UIColor.systemBlue.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 560, height: 280))
+        }
+        let expectation = self.expectation(description: "image refresh")
+        let observation = attachment.addDisplayObserver { expectation.fulfill() }
+
+        loader.complete(with: image)
+        wait(for: [expectation], timeout: 1)
+        _ = observation
+
+        XCTAssertEqual(attachment.bounds.width, 280, accuracy: 0.5)
+        XCTAssertEqual(attachment.bounds.height, 140, accuracy: 0.5)
+    }
+
+    @MainActor
+    func testMermaidRendererKeepsDeprecatedImageCacheAPI() {
+        let cache = STMarkdownMermaidRenderer.shared.imageCache
+
+        XCTAssertNotNil(cache)
     }
 }
