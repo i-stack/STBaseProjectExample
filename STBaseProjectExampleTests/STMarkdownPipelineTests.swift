@@ -1079,7 +1079,7 @@ final class STMarkdownPipelineTests: XCTestCase {
         )
         let view = STMarkdownTextView(
             style: style,
-            advancedRenderers: STMarkdownPresets.defaultAdvancedRenderers
+            advancedRenderers: STMarkdownPresets.makeDefaultAdvancedRenderers()
         )
         view.frame = CGRect(x: 0, y: 0, width: 320, height: 240)
 
@@ -1108,7 +1108,7 @@ final class STMarkdownPipelineTests: XCTestCase {
         )
         let view = STMarkdownStreamingTextView(
             style: style,
-            advancedRenderers: STMarkdownPresets.defaultAdvancedRenderers
+            advancedRenderers: STMarkdownPresets.makeDefaultAdvancedRenderers()
         )
         view.frame = CGRect(x: 0, y: 0, width: 320, height: 240)
 
@@ -1251,6 +1251,32 @@ final class STMarkdownPipelineTests: XCTestCase {
         XCTAssertTrue(result.contains("t"))
     }
 
+    func testHtmlLinkRuleHandlesAttributesSpacingSingleQuotesAndMultilineTitle() {
+        let rule = STHtmlLinkToMarkdownRule()
+        var context = STMarkdownPreprocessContext()
+        let input = """
+        <a class="external" title="docs" href = 'https://example.com/docs'>
+        Docs
+        </a>
+        """
+
+        let result = rule.apply(to: input, context: &context)
+
+        XCTAssertEqual(result, "[\nDocs\n](https://example.com/docs)")
+    }
+
+    func testHtmlLinkRulePreservesNestedTagTitleAsMarkdownText() {
+        let rule = STHtmlLinkToMarkdownRule()
+        var context = STMarkdownPreprocessContext()
+
+        let result = rule.apply(
+            to: #"<a href=\"https://example.com\"><strong>Example</strong></a>"#,
+            context: &context
+        )
+
+        XCTAssertEqual(result, "[<strong>Example</strong>](https://example.com)")
+    }
+
     // MARK: - STAnchorCleanupRule 补齐
 
     func testAnchorCleanupRuleKeepsAnchorWhenFragmentContainsHttp() {
@@ -1364,6 +1390,27 @@ final class STMarkdownPipelineTests: XCTestCase {
         let result = sanitizer.sanitize("A\n\nB")
         XCTAssertFalse(result.appliedRules.contains("STDoubleNewlineRule"))
         XCTAssertEqual(result.sanitizedText, "A\n\nB")
+    }
+
+    func testPipelineReusesSanitizerAndProducesStableResultsAcrossCalls() {
+        let pipeline = STMarkdownPipeline()
+        let input = """
+        <a href="https://example.com">Example</a>
+
+
+
+        Tail
+        """
+
+        let first = pipeline.process(input)
+        let second = pipeline.process(input)
+
+        XCTAssertEqual(first.sanitizedMarkdown, second.sanitizedMarkdown)
+        XCTAssertEqual(first.appliedRules, second.appliedRules)
+        XCTAssertEqual(first.renderDocument, second.renderDocument)
+        XCTAssertEqual(first.sanitizedMarkdown, "[Example](https://example.com)\n\nTail")
+        XCTAssertTrue(first.appliedRules.contains("STHtmlLinkToMarkdownRule"))
+        XCTAssertTrue(first.appliedRules.contains("STDoubleNewlineRule"))
     }
 
     // MARK: - STMarkdownMathNormalizer 补齐
