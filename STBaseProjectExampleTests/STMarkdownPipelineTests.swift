@@ -1,5 +1,5 @@
 import XCTest
-import STBaseProject
+@testable import STBaseProject
 @testable import STBaseProjectExample
 
 private struct MockCodeBlockRenderer: STMarkdownCodeBlockRendering {
@@ -39,6 +39,20 @@ private final class CancellableMockImageLoader: STMarkdownCancellableImageLoadin
     func loadCancellableImage(from url: URL, completion: @escaping @Sendable (UIImage?) -> Void) -> STMarkdownImageLoadCancellable? {
         self.requestedURL = url
         return self.cancellable
+    }
+}
+
+private final class DeferredMockImageLoader: STMarkdownImageLoading {
+    private(set) var requestedURL: URL?
+    private var completion: (@Sendable (UIImage?) -> Void)?
+
+    func loadImage(from url: URL, completion: @escaping @Sendable (UIImage?) -> Void) {
+        self.requestedURL = url
+        self.completion = completion
+    }
+
+    func complete(with image: UIImage?) {
+        self.completion?(image)
     }
 }
 
@@ -205,6 +219,66 @@ final class STMarkdownPipelineTests: XCTestCase {
         XCTAssertNotNil(strongFont)
         XCTAssertNotNil(normalFont)
         XCTAssertNotEqual(strongFont?.fontName, normalFont?.fontName)
+    }
+
+    func testAttributedStringRendererAppliesItalicBoldItalicInlineCodeAndLinkAttributes() {
+        let style = STMarkdownStyle(
+            font: .systemFont(ofSize: 16),
+            textColor: .label,
+            lineHeight: 24,
+            kern: 0,
+            inlineCodeTextColor: .systemPink,
+            linkColor: .systemGreen
+        )
+        let renderer = STMarkdownAttributedStringRenderer(style: style)
+        let document = STMarkdownRenderDocument(
+            blocks: [
+                .paragraph([
+                    .emphasis([.text("斜体")]),
+                    .text(" "),
+                    .strong([.emphasis([.text("粗斜")])]),
+                    .text(" "),
+                    .code("code"),
+                    .text(" "),
+                    .link(destination: "https://example.com", children: [.text("链接")]),
+                ])
+            ]
+        )
+
+        let attributed = renderer.render(document: document)
+        let italicIndex = (attributed.string as NSString).range(of: "斜体").location
+        let boldItalicIndex = (attributed.string as NSString).range(of: "粗斜").location
+        let codeIndex = (attributed.string as NSString).range(of: "code").location
+        let linkIndex = (attributed.string as NSString).range(of: "链接").location
+
+        XCTAssertNotNil(attributed.attribute(.obliqueness, at: italicIndex, effectiveRange: nil))
+        XCTAssertNotNil(attributed.attribute(.obliqueness, at: boldItalicIndex, effectiveRange: nil))
+        let codeFont = attributed.attribute(.font, at: codeIndex, effectiveRange: nil) as? UIFont
+        let codeColor = attributed.attribute(.foregroundColor, at: codeIndex, effectiveRange: nil) as? UIColor
+        XCTAssertTrue(codeFont?.fontName.lowercased().contains("mono") == true)
+        XCTAssertEqual(codeColor, .systemPink)
+        let linkURL = attributed.attribute(.link, at: linkIndex, effectiveRange: nil) as? URL
+        let linkColor = attributed.attribute(.foregroundColor, at: linkIndex, effectiveRange: nil) as? UIColor
+        XCTAssertEqual(linkURL?.absoluteString, "https://example.com")
+        XCTAssertEqual(linkColor, .systemGreen)
+    }
+
+    func testAttributedStringRendererRenderInlineContentUsesProvidedBaseAttributes() {
+        let renderer = STMarkdownAttributedStringRenderer()
+        let baseFont = UIFont.systemFont(ofSize: 21)
+        let rendered = renderer.renderInlineContent(
+            [.text("A"), .strong([.text("B")])],
+            baseFont: baseFont,
+            textColor: .systemOrange
+        )
+
+        let firstFont = rendered.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
+        let firstColor = rendered.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor
+        let secondFont = rendered.attribute(.font, at: 1, effectiveRange: nil) as? UIFont
+
+        XCTAssertEqual(firstFont?.pointSize, 21)
+        XCTAssertEqual(firstColor, .systemOrange)
+        XCTAssertNotEqual(firstFont?.fontName, secondFont?.fontName)
     }
 
     func testAttributedStringRendererRendersOrderedListMarker() {
@@ -377,6 +451,27 @@ final class STMarkdownPipelineTests: XCTestCase {
         XCTAssertGreaterThan(baselineOffset ?? 0, 0)
     }
 
+    func testDefaultMathRendererRendersSubscriptCommandMapAndBlockParagraphStyle() {
+        let renderer = STMarkdownDefaultMathRenderer()
+        let inline = renderer.renderInlineMath(
+            formula: #"x_{i} + \alpha \times y"#,
+            style: .default,
+            baseFont: .systemFont(ofSize: 16),
+            textColor: .label
+        )
+        let subscriptLocation = (inline?.string as NSString?)?.range(of: "i").location ?? NSNotFound
+        let baselineOffset = inline?.attribute(.baselineOffset, at: subscriptLocation, effectiveRange: nil) as? CGFloat
+
+        XCTAssertEqual(inline?.string, "xi + α × y")
+        XCTAssertNotNil(baselineOffset)
+        XCTAssertLessThan(baselineOffset ?? 0, 0)
+
+        let block = renderer.renderBlockMath(formula: "a=b", style: .default)
+        XCTAssertEqual(block?.string, "\na=b\n")
+        let paragraphStyle = block?.attribute(.paragraphStyle, at: 1, effectiveRange: nil) as? NSParagraphStyle
+        XCTAssertEqual(paragraphStyle?.alignment, .center)
+    }
+
     func testStructureParserExtractsInlineMathNodes() {
         let parser = STMarkdownStructureParser()
         let document = parser.parse(#"结果是 \(x^2+y^2\)"#)
@@ -496,6 +591,33 @@ final class STMarkdownPipelineTests: XCTestCase {
         XCTAssertTrue(font?.fontName.lowercased().contains("mono") == true)
     }
 
+    func testDefaultTableRendererPlainTextCoversInlineNodeFallbacks() {
+        let table = STMarkdownTableModel(
+            header: nil,
+            rows: [
+                [
+                    [
+                        .strong([.text("S")]),
+                        .emphasis([.text("E")]),
+                        .link(destination: "https://example.com", children: [.text("L")]),
+                        .image(source: "https://example.com/image.png", alt: "", title: nil),
+                    ],
+                    [
+                        .inlineMath("x+y", isDisplayMode: false),
+                        .softBreak,
+                        .code("c"),
+                        .strikethrough([.text("D")]),
+                    ],
+                ]
+            ]
+        )
+
+        let rendered = STMarkdownDefaultTableRenderer().renderTable(table, style: .default)
+
+        XCTAssertTrue(rendered?.string.contains("SEL[image]") == true)
+        XCTAssertTrue(rendered?.string.contains("x+y cD") == true)
+    }
+
     func testDefaultImageRendererUsesAltTextForInlineImage() {
         let renderer = STMarkdownAttributedStringRenderer(
             style: STMarkdownStyle.default,
@@ -533,6 +655,28 @@ final class STMarkdownPipelineTests: XCTestCase {
 
         XCTAssertTrue(attributed.string.contains("[image] a.png"))
         XCTAssertTrue(attributed.string.contains("图片说明"))
+    }
+
+    func testDefaultImageRendererFallsBackForInvalidURLAndEmptyAlt() {
+        let renderer = STMarkdownDefaultImageRenderer()
+
+        let inline = renderer.renderImage(
+            url: "not a url",
+            altText: "",
+            title: nil,
+            style: .default,
+            inline: true
+        )
+        let block = renderer.renderImage(
+            url: "not a url",
+            altText: "",
+            title: nil,
+            style: .default,
+            inline: false
+        )
+
+        XCTAssertEqual(inline?.string, " [img]")
+        XCTAssertTrue(block?.string.contains("[image]") == true)
     }
 
     func testDefaultHorizontalRuleRendererUsesConfiguredLength() {
@@ -578,6 +722,38 @@ final class STMarkdownPipelineTests: XCTestCase {
         XCTAssertGreaterThan(attachment?.bounds.height ?? 0, 0)
     }
 
+    func testCodeBlockAttachmentRendererOmitsHeaderWhenLanguageIsMissing() {
+        let renderer = STMarkdownCodeBlockAttachmentRenderer()
+        let style = STMarkdownStyle.default
+        let withoutLanguage = renderer.renderCodeBlock(language: nil, code: "let value = 1", style: style)
+        let withLanguage = renderer.renderCodeBlock(language: "swift", code: "let value = 1", style: style)
+        let withoutAttachment = withoutLanguage?.attribute(.attachment, at: 0, effectiveRange: nil) as? NSTextAttachment
+        let withAttachment = withLanguage?.attribute(.attachment, at: 0, effectiveRange: nil) as? NSTextAttachment
+
+        XCTAssertNotNil(withoutAttachment)
+        XCTAssertNotNil(withAttachment)
+        XCTAssertGreaterThan(
+            withAttachment?.bounds.height ?? 0,
+            withoutAttachment?.bounds.height ?? 0,
+            "高级 code block attachment 无 language 时也不应保留标题区域"
+        )
+    }
+
+    func testCodeBlockAttachmentOmitsHeaderWhenLanguageIsMissing() {
+        let style = STMarkdownStyle.default
+        let code = "let value = 1"
+        let withoutLanguage = STMarkdownCodeBlockAttachment(language: nil, code: code, style: style)
+        let withLanguage = STMarkdownCodeBlockAttachment(language: "swift", code: code, style: style)
+
+        XCTAssertEqual(withoutLanguage.headerHeight, 0, "无 language 时不应保留空 header 高度")
+        XCTAssertGreaterThan(withLanguage.headerHeight, 0, "有 language 时应保留 header 高度")
+        XCTAssertGreaterThan(
+            withLanguage.bounds.height,
+            withoutLanguage.bounds.height,
+            "有 language 的代码块高度应包含 header 与分隔线；无 language 不应保留空白标题区域"
+        )
+    }
+
     func testAsyncImageRendererProducesAttachmentAndCallsLoader() {
         let loader = MockImageLoader()
         let renderer = STMarkdownAttributedStringRenderer(
@@ -599,6 +775,70 @@ final class STMarkdownPipelineTests: XCTestCase {
         XCTAssertNotNil(attachment)
         XCTAssertNotNil(attachment?.image)
         XCTAssertTrue(attributed.string.contains("图片标题"))
+    }
+
+    func testAsyncImageRendererRejectsInvalidURL() {
+        let loader = MockImageLoader()
+        let renderer = STMarkdownAsyncImageRenderer(loader: loader)
+
+        let rendered = renderer.renderImage(url: "", altText: "bad", title: nil, style: .default, inline: true)
+
+        XCTAssertNil(rendered)
+        XCTAssertNil(loader.lastURL)
+    }
+
+    func testAsyncImageAttachmentUpdatesBoundsAndNotifiesObserverWhenImageLoads() {
+        let loader = DeferredMockImageLoader()
+        let renderer = STMarkdownAsyncImageRenderer(loader: loader)
+        let attributed = renderer.renderImage(
+            url: "https://example.com/wide.png",
+            altText: "wide",
+            title: nil,
+            style: .default,
+            inline: false
+        )
+        guard let attachment = attributed?.attribute(.attachment, at: 0, effectiveRange: nil) as? STMarkdownAsyncImageAttachment else {
+            return XCTFail("Expected async image attachment")
+        }
+        let placeholderBounds = attachment.bounds
+        let expectation = self.expectation(description: "image refresh")
+        let observation = attachment.addDisplayObserver {
+            expectation.fulfill()
+        }
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 560, height: 280)).image { context in
+            UIColor.systemRed.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 560, height: 280))
+        }
+
+        loader.complete(with: image)
+        wait(for: [expectation], timeout: 1)
+        _ = observation
+
+        XCTAssertEqual(loader.requestedURL?.absoluteString, "https://example.com/wide.png")
+        XCTAssertNotEqual(attachment.bounds, placeholderBounds)
+        XCTAssertEqual(attachment.bounds.width, 280, accuracy: 0.5)
+        XCTAssertEqual(attachment.bounds.height, 140, accuracy: 0.5)
+        XCTAssertEqual(attachment.image?.accessibilityLabel, "wide")
+    }
+
+    func testAsyncImageLegacyLoaderCompletionIsIgnoredAfterAttachmentRelease() {
+        let loader = DeferredMockImageLoader()
+        weak var weakAttachment: STMarkdownAsyncImageAttachment?
+        autoreleasepool {
+            let attributed = STMarkdownAsyncImageRenderer(loader: loader).renderImage(
+                url: "https://example.com/release.png",
+                altText: "release",
+                title: nil,
+                style: .default,
+                inline: true
+            )
+            weakAttachment = attributed?.attribute(.attachment, at: 0, effectiveRange: nil) as? STMarkdownAsyncImageAttachment
+            XCTAssertNotNil(weakAttachment)
+        }
+
+        loader.complete(with: UIGraphicsImageRenderer(size: CGSize(width: 24, height: 24)).image { _ in })
+
+        XCTAssertNil(weakAttachment)
     }
 
     func testTableAttachmentRendererProducesAttachment() {
@@ -1655,5 +1895,262 @@ final class STMarkdownPipelineTests: XCTestCase {
         }
         XCTAssertEqual(destination, "https://example.com",
                        "normalizeLinkDestination 应去除首尾空白")
+    }
+
+    // MARK: - Rendering 代码审核回归测试
+
+    /// 回归：`STMarkdownDefaultMathRenderer.normalize` 早期把 `\\(` 写成 raw-string `#"\\("#`，
+    /// 该字面量实际去匹配两个反斜杠+括号，永远不会命中真实的 `\(...\)` 分隔符。
+    /// 修复后，分隔符应被正确剥离。
+    func testDefaultMathRendererStripsLatexDelimiters() {
+        let renderer = STMarkdownDefaultMathRenderer()
+        let rendered = renderer.renderInlineMath(
+            formula: #"\(x+y\)"#,
+            style: .default,
+            baseFont: .systemFont(ofSize: 16),
+            textColor: .label
+        )
+        XCTAssertNotNil(rendered)
+        XCTAssertFalse(rendered?.string.contains(#"\("#) ?? true,
+                       "inline math 分隔符 `\\(` 应被剥离")
+        XCTAssertFalse(rendered?.string.contains(#"\)"#) ?? true,
+                       "inline math 分隔符 `\\)` 应被剥离")
+        XCTAssertTrue(rendered?.string.contains("x") == true)
+        XCTAssertTrue(rendered?.string.contains("y") == true)
+    }
+
+    func testDefaultMathRendererStripsBracketBlockDelimiters() {
+        let renderer = STMarkdownDefaultMathRenderer()
+        let rendered = renderer.renderBlockMath(
+            formula: #"\[a=b\]"#,
+            style: .default
+        )
+        XCTAssertNotNil(rendered)
+        XCTAssertFalse(rendered?.string.contains(#"\["#) ?? true,
+                       "block math 分隔符 `\\[` 应被剥离")
+        XCTAssertFalse(rendered?.string.contains(#"\]"#) ?? true,
+                       "block math 分隔符 `\\]` 应被剥离")
+    }
+
+    func testHighFidelityMathRendererRendersBlockAttachmentAndStripsDelimiters() {
+        let renderer = STMarkdownHighFidelityMathRenderer()
+        let rendered = renderer.renderBlockMath(formula: #"\[x+y\]"#, style: .default)
+
+        XCTAssertNotNil(rendered)
+        XCTAssertNotNil(rendered?.attribute(.attachment, at: 0, effectiveRange: nil) as? NSTextAttachment)
+        XCTAssertFalse(rendered?.string.contains(#"\["#) ?? true)
+        XCTAssertFalse(rendered?.string.contains(#"\]"#) ?? true)
+        let paragraphStyle = rendered?.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        XCTAssertEqual(paragraphStyle?.alignment, .center)
+    }
+
+    /// 回归：列表项若首块是非 paragraph（codeBlock/quote/list/table），
+    /// 之前 marker 后面不补换行会与块内容挤在同一行。
+    /// 修复后 marker 与 trailing 子块之间应存在换行。
+    func testAttributedStringRendererSeparatesMarkerFromNonParagraphLeadingBlock() {
+        let renderer = STMarkdownAttributedStringRenderer()
+        let document = STMarkdownRenderDocument(
+            blocks: [
+                .list([
+                    STMarkdownRenderListItem(
+                        blocks: [
+                            .codeBlock(language: "swift", code: "let x = 1")
+                        ],
+                        ordered: false,
+                        level: 0,
+                        orderedIndex: nil
+                    )
+                ])
+            ]
+        )
+        let attributed = renderer.render(document: document)
+        // marker 行应当单独一行，且下一行才是代码块内容
+        let lines = attributed.string.components(separatedBy: "\n")
+        XCTAssertGreaterThanOrEqual(lines.count, 2,
+                                    "marker 与 codeBlock 之间应有换行")
+        XCTAssertTrue(lines[0].contains("●") || lines[0].contains("○"),
+                      "首行应包含 list marker")
+    }
+
+    /// 回归：引用块（quote）之前只在开头插一个 `┃ ` 前缀，多段引用视觉断裂。
+    /// 修复后每个非空段落起点都应插入左竖线。
+    func testAttributedStringRendererQuoteAppliesPrefixToEachParagraph() {
+        let renderer = STMarkdownAttributedStringRenderer()
+        let document = STMarkdownRenderDocument(
+            blocks: [
+                .quote([
+                    .paragraph([.text("第一段")]),
+                    .paragraph([.text("第二段")]),
+                ])
+            ]
+        )
+        let attributed = renderer.render(document: document)
+        // 两段引用 → 竖线至少出现两次
+        let prefixChar: Character = "▎"
+        let count = attributed.string.filter { $0 == prefixChar }.count
+        XCTAssertGreaterThanOrEqual(count, 2,
+                                    "多段引用块应对每一段都补左竖线")
+    }
+
+    /// 回归：`STMarkdownStyle.blockquoteLineColor` 之前是 dead config，总是硬编码 `UIColor.systemGray`。
+    /// 修复后自定义颜色应生效。
+    func testAttributedStringRendererQuoteHonorsBlockquoteLineColor() {
+        let style = STMarkdownStyle(
+            font: .systemFont(ofSize: 16),
+            textColor: .label,
+            lineHeight: 24,
+            kern: 0,
+            blockquoteLineColor: .red
+        )
+        let renderer = STMarkdownAttributedStringRenderer(style: style)
+        let document = STMarkdownRenderDocument(
+            blocks: [.quote([.paragraph([.text("引用")])])]
+        )
+        let attributed = renderer.render(document: document)
+        // 找出竖线字符的位置，读它的前景色
+        guard let index = attributed.string.firstIndex(of: "▎") else {
+            return XCTFail("应存在左竖线字符")
+        }
+        let nsIndex = attributed.string.utf16.distance(
+            from: attributed.string.utf16.startIndex,
+            to: index.samePosition(in: attributed.string.utf16) ?? attributed.string.utf16.startIndex
+        )
+        let color = attributed.attribute(.foregroundColor, at: nsIndex, effectiveRange: nil) as? UIColor
+        XCTAssertEqual(color, .red, "竖线颜色应来自 style.blockquoteLineColor")
+    }
+
+    /// 回归：`STMarkdownAttributedStringRenderer.renderTable` 的内建 fallback 早期只取
+    /// `renderInline(...).string`，把粗体/斜体/链接全部丢掉。修复后应复用
+    /// `STMarkdownDefaultTableRenderer`，至少保留等宽对齐+表头分隔。
+    func testAttributedStringRendererFallbackTableUsesSeparator() {
+        let renderer = STMarkdownAttributedStringRenderer()
+        let document = STMarkdownRenderDocument(
+            blocks: [
+                .table(
+                    STMarkdownTableModel(
+                        header: [
+                            [.text("A")],
+                            [.text("B")],
+                        ],
+                        rows: [
+                            [[.text("1")], [.text("2")]]
+                        ]
+                    )
+                )
+            ]
+        )
+        let attributed = renderer.render(document: document)
+        XCTAssertTrue(attributed.string.contains("┼"),
+                      "fallback table 应包含表头分隔符")
+    }
+
+    /// 回归：`STMarkdownDefaultTableRenderer.columnWidths` 基于 `String.count`，
+    /// CJK 字符在等宽字体里占两格会导致列对齐错位。修复后应使用
+    /// East Asian Width 近似，中文整列 pad 后宽度一致。
+    func testDefaultTableRendererAlignsCJKColumns() {
+        let table = STMarkdownTableModel(
+            header: [
+                [.text("中文")],
+                [.text("x")],
+            ],
+            rows: [
+                [[.text("a")], [.text("中文")]]
+            ]
+        )
+        let rendered = STMarkdownDefaultTableRenderer().renderTable(table, style: .default)
+        XCTAssertNotNil(rendered)
+        // 输出形如 `header\n\nseparator\ndata`，过滤空行后取第一/最后行做对齐校验。
+        let lines = rendered!.string
+            .components(separatedBy: "\n")
+            .filter { $0.isEmpty == false }
+        XCTAssertGreaterThanOrEqual(lines.count, 3,
+                                    "应包含表头、分隔、数据三行")
+        func displayWidth(_ s: String) -> Int {
+            s.unicodeScalars.reduce(0) { acc, scalar in
+                let v = scalar.value
+                let isWide = (0x4E00...0x9FFF).contains(v)
+                    || (0x3000...0x303F).contains(v)
+                    || (0xFF00...0xFFEF).contains(v)
+                return acc + (isWide ? 2 : 1)
+            }
+        }
+        let headerWidth = displayWidth(lines[0])
+        let dataWidth = displayWidth(lines[lines.count - 1])
+        XCTAssertEqual(
+            headerWidth,
+            dataWidth,
+            "表头行与数据行的显示宽度应相同，CJK 对齐不能错位（header=\(lines[0]), data=\(lines.last ?? ""))"
+        )
+    }
+
+    /// 回归：`STMarkdownCodeBlockSupport.keywordPatterns` 里早期有一行
+    /// `.replacingOccurrences(of: "\\(joined)", with: joined)`，
+    /// 但字符串插值阶段 `\(joined)` 已被替换，这是无意义代码。
+    /// 修复后仍能正确匹配 Swift 关键字并高亮。
+    func testCodeSyntaxHighlighterAppliesKeywordColorForSwift() {
+        let style = STMarkdownStyle.default
+        let paragraphStyle = NSMutableParagraphStyle()
+        let highlighted = STMarkdownCodeSyntaxHighlighter.highlightedBody(
+            language: "swift",
+            code: "let x = 1",
+            font: .monospacedSystemFont(ofSize: 14, weight: .regular),
+            textColor: style.textColor,
+            paragraphStyle: paragraphStyle
+        )
+        // "let" 起始位置应被染成 keyword 色（systemBlue），非 textColor
+        let color = highlighted.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor
+        XCTAssertNotNil(color)
+        XCTAssertNotEqual(color, style.textColor,
+                          "Swift 关键字应被染色，而不是保持默认 textColor")
+    }
+
+    func testCodeSyntaxHighlighterCoversStringCommentNumberTypeAndTagBranches() {
+        let style = STMarkdownStyle.default
+        let paragraphStyle = NSMutableParagraphStyle()
+        func color(in attributed: NSAttributedString, for needle: String) -> UIColor? {
+            let range = (attributed.string as NSString).range(of: needle)
+            guard range.location != NSNotFound else { return nil }
+            return attributed.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? UIColor
+        }
+
+        let js = STMarkdownCodeSyntaxHighlighter.highlightedBody(
+            language: "javascript",
+            code: #"const name = "Ada"; // comment"#,
+            font: .monospacedSystemFont(ofSize: 14, weight: .regular),
+            textColor: style.textColor,
+            paragraphStyle: paragraphStyle
+        )
+        XCTAssertNotEqual(color(in: js, for: "const"), style.textColor)
+        XCTAssertNotEqual(color(in: js, for: #""Ada""#), style.textColor)
+        XCTAssertNotEqual(color(in: js, for: "// comment"), style.textColor)
+
+        let python = STMarkdownCodeSyntaxHighlighter.highlightedBody(
+            language: "python",
+            code: "value = 42 # note",
+            font: .monospacedSystemFont(ofSize: 14, weight: .regular),
+            textColor: style.textColor,
+            paragraphStyle: paragraphStyle
+        )
+        XCTAssertNotEqual(color(in: python, for: "42"), style.textColor)
+        XCTAssertNotEqual(color(in: python, for: "# note"), style.textColor)
+
+        let typed = STMarkdownCodeSyntaxHighlighter.highlightedBody(
+            language: "swift",
+            code: "let name: String = nil",
+            font: .monospacedSystemFont(ofSize: 14, weight: .regular),
+            textColor: style.textColor,
+            paragraphStyle: paragraphStyle
+        )
+        XCTAssertNotEqual(color(in: typed, for: "String"), style.textColor)
+
+        let html = STMarkdownCodeSyntaxHighlighter.highlightedBody(
+            language: "html",
+            code: #"<a href="https://example.com">Link</a>"#,
+            font: .monospacedSystemFont(ofSize: 14, weight: .regular),
+            textColor: style.textColor,
+            paragraphStyle: paragraphStyle
+        )
+        XCTAssertNotEqual(color(in: html, for: "<a"), style.textColor)
+        XCTAssertNotEqual(color(in: html, for: "href"), style.textColor)
     }
 }
