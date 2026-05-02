@@ -2486,4 +2486,72 @@ final class STMarkdownPipelineTests: XCTestCase {
 
         XCTAssertNotNil(cache)
     }
+
+    // MARK: - 第四轮 Rendering 修复回归
+
+    /// 回归 #25：`STMarkdownCodeBlockAttachment.configureRenderCache(countLimit:)` 可调整上限。
+    /// 清空缓存后再次构造应命中新的绘制路径，而不复用历史结果。
+    func testCodeBlockAttachmentConfigurableRenderCache() {
+        addTeardownBlock {
+            STMarkdownCodeBlockAttachment.configureRenderCache(countLimit: 48)
+            STMarkdownCodeBlockAttachment.clearRenderCache()
+        }
+        STMarkdownCodeBlockAttachment.configureRenderCache(countLimit: 8)
+        STMarkdownCodeBlockAttachment.clearRenderCache()
+        let style = STMarkdownStyle.default
+        let first = STMarkdownCodeBlockAttachment(language: "swift", code: "let x = 1", style: style)
+        XCTAssertNotNil(first.image)
+        // 清空后强制重新绘制，图像大小仍应保持一致（配置 countLimit 不影响渲染结果）
+        STMarkdownCodeBlockAttachment.clearRenderCache()
+        let second = STMarkdownCodeBlockAttachment(language: "swift", code: "let x = 1", style: style)
+        XCTAssertEqual(first.image?.size, second.image?.size)
+    }
+
+    /// 回归 #13：`STMarkdownCodeBlockRenderingPresets` 作为 facade 暴露三个 code block
+    /// renderer 的 typealias，消除调用方在名字相似的实现间纠结。
+    func testCodeBlockRenderingPresetsTypealiasesMapToExistingRenderers() {
+        _ = STMarkdownCodeBlockRenderingPresets.PlainText()
+        _ = STMarkdownCodeBlockRenderingPresets.StaticAttachment()
+        _ = STMarkdownCodeBlockRenderingPresets.RichAttachment()
+    }
+
+    /// 回归 #31：`boundingRect` 已经把 paragraphStyle.lineSpacing 纳入高度，
+    /// 修复不应再按估算行数二次叠加 lineSpacing，避免代码块被过早折叠。
+    func testCodeBlockAttachmentLineSpacingDoesNotTriggerPrematureCollapse() {
+        STMarkdownCodeBlockAttachment.clearRenderCache()
+        let largeSpacingStyle = STMarkdownStyle(
+            font: .systemFont(ofSize: 16),
+            textColor: .label,
+            lineHeight: 24,
+            kern: 0,
+            bodyLineSpacing: 12,
+            renderWidth: 240
+        )
+        let tightStyle = STMarkdownStyle(
+            font: .systemFont(ofSize: 16),
+            textColor: .label,
+            lineHeight: 24,
+            kern: 0,
+            bodyLineSpacing: 0,
+            renderWidth: 240
+        )
+        let multiLineCode = "line1\nline2\nline3\nline4\nline5\nline6"
+        let wide = STMarkdownCodeBlockAttachment(language: "swift", code: multiLineCode, style: largeSpacingStyle)
+        let tight = STMarkdownCodeBlockAttachment(language: "swift", code: multiLineCode, style: tightStyle)
+
+        XCTAssertGreaterThan(
+            wide.renderedBodyHeight,
+            tight.renderedBodyHeight,
+            "bodyLineSpacing 增大时，TextKit 测量高度应自然变大"
+        )
+        XCTAssertFalse(
+            wide.isCollapsed,
+            "lineSpacing 不应被二次叠加到触发过早折叠"
+        )
+        XCTAssertLessThan(
+            wide.renderedBodyHeight - tight.renderedBodyHeight,
+            80,
+            "高度差应接近真实行间距增量，不能按错误估算行数过度放大"
+        )
+    }
 }
