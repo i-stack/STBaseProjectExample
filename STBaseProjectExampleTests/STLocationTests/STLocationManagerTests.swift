@@ -42,9 +42,9 @@ final class MockCLGeocoder: STCLGeocoderProtocol {
     private(set) var cancelCallCount = 0
     private(set) var geocodeCallCount = 0
     // 持有最近一次 geocoding 的回调，供测试手动触发
-    private(set) var pendingHandler: CLGeocodeCompletionHandler?
+    private(set) var pendingHandler: (@Sendable ([CLPlacemark]?, Error?) -> Void)?
 
-    func reverseGeocodeLocation(_ location: CLLocation, completionHandler: @escaping CLGeocodeCompletionHandler) {
+    func reverseGeocodeLocation(_ location: CLLocation, completionHandler: @escaping @Sendable ([CLPlacemark]?, Error?) -> Void) {
         self.geocodeCallCount += 1
         self.isGeocoding = true
         self.pendingHandler = completionHandler
