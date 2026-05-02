@@ -11,6 +11,8 @@
 		3BC33DCE6667208FB2C173D7 /* Pods_STBaseProjectExampleTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0283393535FD1ACC2B18EBC8 /* Pods_STBaseProjectExampleTests.framework */; };
 		CAAB0100000000000000AA01 /* STContacts in Frameworks */ = {isa = PBXBuildFile; productRef = CAAB0100000000000000AA00 /* STContacts */; };
 		CAAB0200000000000000AA01 /* STMedia in Frameworks */ = {isa = PBXBuildFile; productRef = CAAB0200000000000000AA00 /* STMedia */; };
+		CAAB0300000000000000AA01 /* STLocation in Frameworks */ = {isa = PBXBuildFile; productRef = CAAB0300000000000000AA00 /* STLocation */; };
+		CAAB0400000000000000AA01 /* STBaseProject in Frameworks */ = {isa = PBXBuildFile; productRef = CAAB0400000000000000AA00 /* STBaseProject */; };
 		E4EEED8B2FA0B5D300730900 /* STBaseProject in Frameworks */ = {isa = PBXBuildFile; productRef = E4EEED8A2FA0B5D300730900 /* STBaseProject */; };
 		F0B670DF2C171EB57F86C428 /* Pods_STBaseProjectExample_STBaseProjectExampleUITests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2ECB33F317DD5400A18A89B8 /* Pods_STBaseProjectExample_STBaseProjectExampleUITests.framework */; };
 /* End PBXBuildFile section */
@@ -94,6 +96,8 @@
 			files = (
 				CAAB0100000000000000AA01 /* STContacts in Frameworks */,
 				CAAB0200000000000000AA01 /* STMedia in Frameworks */,
+				CAAB0300000000000000AA01 /* STLocation in Frameworks */,
+				CAAB0400000000000000AA01 /* STBaseProject in Frameworks */,
 				3BC33DCE6667208FB2C173D7 /* Pods_STBaseProjectExampleTests.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -202,6 +206,8 @@
 			packageProductDependencies = (
 				CAAB0100000000000000AA00 /* STContacts */,
 				CAAB0200000000000000AA00 /* STMedia */,
+				CAAB0300000000000000AA00 /* STLocation */,
+				CAAB0400000000000000AA00 /* STBaseProject */,
 			);
 			productName = STBaseProjectExampleTests;
 			productReference = E4EEECE92FA0B1AD00730900 /* STBaseProjectExampleTests.xctest */;
@@ -740,6 +746,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = E4EEED892FA0B5D300730900 /* XCLocalSwiftPackageReference "../STBaseProject" */;
 			productName = STMedia;
+		};
+		CAAB0300000000000000AA00 /* STLocation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E4EEED892FA0B5D300730900 /* XCLocalSwiftPackageReference "../STBaseProject" */;
+			productName = STLocation;
+		};
+		CAAB0400000000000000AA00 /* STBaseProject */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E4EEED892FA0B5D300730900 /* XCLocalSwiftPackageReference "../STBaseProject" */;
+			productName = STBaseProject;
 		};
 		E4EEED8A2FA0B5D300730900 /* STBaseProject */ = {
 			isa = XCSwiftPackageProductDependency;
