@@ -1,11 +1,10 @@
-# Uncomment the next line to define a global platform for your project
-# platform :ios, '9.0'
+platform :ios, '16.0'
 
 target 'STBaseProjectExample' do
-  # Comment the next line if you don't want to use dynamic frameworks
   use_frameworks!
 
-  # Pods for STBaseProjectExample
+  # Mirrors SPM `Package.swift` (Markdown + SwiftMath); STMarkdown subspec pulls STBaseProject core transitively.
+#  pod 'STBaseProject/STMarkdown', path: '../STBaseProject'
 
   target 'STBaseProjectExampleTests' do
     inherit! :search_paths
@@ -16,4 +15,21 @@ target 'STBaseProjectExample' do
     # Pods for testing
   end
 
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      deployment = config.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
+      if deployment && deployment.to_f < 12.0
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '12.0'
+      end
+      if target.name.include?('swift-markdown')
+        existing = config.build_settings['OTHER_CFLAGS'] || '$(inherited)'
+        unless existing.to_s.include?('incomplete-umbrella')
+          config.build_settings['OTHER_CFLAGS'] = "#{existing} -Wno-incomplete-umbrella"
+        end
+      end
+    end
+  end
 end
