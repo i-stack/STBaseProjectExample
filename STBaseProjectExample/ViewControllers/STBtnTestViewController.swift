@@ -73,6 +73,9 @@ final class STBtnTestViewController: BaseViewController {
         self.addSectionLabel("STIconBtn · 自适应宽度")
         self.stackView.addArrangedSubview(self.makeAdaptiveIconButtonsRow())
 
+        self.addSectionLabel("STIconBtn · 选中态切换")
+        self.stackView.addArrangedSubview(self.makeSelectableIconButtonsRow())
+
         self.addSectionLabel("STVerificationCodeBtn · 倒计时")
         self.setupVerificationButton()
         self.stackView.addArrangedSubview(self.verificationButton)
@@ -117,20 +120,20 @@ final class STBtnTestViewController: BaseViewController {
 
     // MARK: - 内容边距
     private func makeLeftPaddingButton() -> STBtn {
-        let button = self.makeBaseButton(title: "左对齐 + contentHorizontalPadding = 24")
+        let button = self.makeBaseButton(title: "左对齐 + 左侧 24pt 边距")
         button.backgroundColor = .systemIndigo.withAlphaComponent(0.14)
         button.setTitleColor(.systemIndigo, for: .normal)
         button.contentHorizontalAlignment = .left
-        button.contentHorizontalPadding = 24
+        button.configuration?.contentInsets.leading += 24
         return button
     }
 
     private func makeRightPaddingButton() -> STBtn {
-        let button = self.makeBaseButton(title: "右对齐 + contentHorizontalPadding = 24")
+        let button = self.makeBaseButton(title: "右对齐 + 右侧 24pt 边距")
         button.backgroundColor = .systemTeal.withAlphaComponent(0.14)
         button.setTitleColor(.systemTeal, for: .normal)
         button.contentHorizontalAlignment = .right
-        button.contentHorizontalPadding = 24
+        button.configuration?.contentInsets.trailing += 24
         return button
     }
 
@@ -191,55 +194,27 @@ final class STBtnTestViewController: BaseViewController {
     }
 
     // MARK: - 交互反馈：点击后背景颜色变化
-    /// 通过覆写 `refineButtonConfiguration` 在每次 configuration update（含 `isHighlighted` 变化）
-    /// 里重写 `config.background.backgroundColor`，避免外部设置 `configurationUpdateHandler` 覆盖
-    /// `STBtn` 的基线重置逻辑。
-    private final class STHighlightColorBtn: STBtn {
-        var normalBackgroundColor: UIColor = .systemBlue {
-            didSet { self.setNeedsUpdateConfiguration() }
-        }
-        var highlightedBackgroundColor: UIColor = .systemIndigo {
-            didSet { self.setNeedsUpdateConfiguration() }
-        }
-        var disabledBackgroundColor: UIColor = .systemGray3 {
-            didSet { self.setNeedsUpdateConfiguration() }
-        }
-
-        override func refineButtonConfiguration(_ button: UIButton, configuration config: inout UIButton.Configuration) {
-            super.refineButtonConfiguration(button, configuration: &config)
-            var background = config.background
-            if !button.isEnabled {
-                background.backgroundColor = self.disabledBackgroundColor
-            } else if button.isHighlighted {
-                background.backgroundColor = self.highlightedBackgroundColor
-            } else {
-                background.backgroundColor = self.normalBackgroundColor
-            }
-            config.background = background
-        }
-    }
-
+    /// 直接通过 `st_setBackgroundColor(_:for:)` 按状态声明颜色，
+    /// `STBtn` 会在 `refineButtonConfiguration` 里自动按当前 `button.state` 命中对应颜色。
+    /// 不需要子类化、不需要自定义 `configurationUpdateHandler`。
     private func makeHighlightColorButton() -> STBtn {
-        let button = STHighlightColorBtn(type: .custom)
-        button.setTitle("按下查看背景色变化", for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 15, weight: .medium)
+        let button = self.makeBaseButton(title: "按下查看背景色变化")
         button.setTitleColor(.white, for: .normal)
         button.setTitleColor(.white, for: .highlighted)
-        button.normalBackgroundColor = .systemBlue
-        button.highlightedBackgroundColor = .systemIndigo
-        button.heightAnchor.constraint(equalToConstant: 52).isActive = true
+        button.st_setBackgroundColor(.systemBlue, for: .normal)
+        button.st_setBackgroundColor(.systemIndigo, for: .highlighted)
+        button.st_setBackgroundColor(.systemGray3, for: .disabled)
         button.addTarget(self, action: #selector(self.onHighlightButtonTapped(_:)), for: .touchUpInside)
         return button
     }
 
     private func makeHighlightColorRoundedButton() -> STBtn {
-        let button = STHighlightColorBtn(type: .custom)
-        button.setTitle("按下变色 + 圆角 + 阴影", for: .normal)
+        let button = self.makeBaseButton(title: "按下变色 + 圆角 + 阴影")
         button.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
         button.setTitleColor(.white, for: .normal)
         button.setTitleColor(.white, for: .highlighted)
-        button.normalBackgroundColor = .systemGreen
-        button.highlightedBackgroundColor = .systemTeal
+        button.st_setBackgroundColor(.systemGreen, for: .normal)
+        button.st_setBackgroundColor(.systemTeal, for: .highlighted)
         button.st_roundedButton(cornerRadius: 14)
         button.st_setShadow(
             color: UIColor.black.withAlphaComponent(0.18),
@@ -247,7 +222,6 @@ final class STBtnTestViewController: BaseViewController {
             radius: 10,
             opacity: 1
         )
-        button.heightAnchor.constraint(equalToConstant: 52).isActive = true
         button.addTarget(self, action: #selector(self.onHighlightButtonTapped(_:)), for: .touchUpInside)
         return button
     }
@@ -336,6 +310,91 @@ final class STBtnTestViewController: BaseViewController {
             .done()
         button.st_roundedButton(cornerRadius: 10)
         return button
+    }
+
+    // MARK: - STIconBtn 选中态切换
+    /// 验证「点击切换 isSelected，图标 + 标题同步切换，宽度随文本自适应伸缩」。
+    /// `UIButton.Configuration` 会在 `isSelected` 变化时自动经由 `configurationUpdateHandler`
+    /// 读取对应 state 的 title/image，无需手动同步。
+    private func makeSelectableIconButtonsRow() -> UIView {
+        let container = UIStackView()
+        container.axis = .vertical
+        container.alignment = .leading
+        container.spacing = 10
+
+        container.addArrangedSubview(self.makeThinkingToggleButton())
+        container.addArrangedSubview(self.makeFavoriteToggleButton())
+        container.addArrangedSubview(self.makeCheckableToggleButton())
+        return container
+    }
+
+    /// 「思考 / 思考中」 —— 点击切换，文字变长时按钮宽度随之扩展。
+    private func makeThinkingToggleButton() -> STIconBtn {
+        let button = STIconBtn(type: .custom)
+        button.setTitle("思考", for: .normal)
+        button.setTitle("思考中…", for: .selected)
+        button.setTitleColor(.secondaryLabel, for: .normal)
+        button.setTitleColor(.systemGreen, for: .selected)
+        button.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
+        button.setImage(self.symbolImage("brain.head.profile", tint: .secondaryLabel), for: .normal)
+        button.setImage(self.symbolImage("brain.head.profile.fill", tint: .systemGreen), for: .selected)
+        button.configure()
+            .iconPosition(.left)
+            .spacing(4)
+            .contentInsets(UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12))
+            .done()
+        button.backgroundColor = .secondarySystemBackground
+        button.st_roundedButton(cornerRadius: 8)
+        button.addTarget(self, action: #selector(self.onToggleButtonTapped(_:)), for: .touchUpInside)
+        return button
+    }
+
+    /// 收藏开关 —— 图标 + 文案 + 颜色全部按 state 切换。
+    private func makeFavoriteToggleButton() -> STIconBtn {
+        let button = STIconBtn(type: .custom)
+        button.setTitle("收藏", for: .normal)
+        button.setTitle("已收藏", for: .selected)
+        button.setTitleColor(.label, for: .normal)
+        button.setTitleColor(.systemOrange, for: .selected)
+        button.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
+        button.setImage(self.symbolImage("star", tint: .label), for: .normal)
+        button.setImage(self.symbolImage("star.fill", tint: .systemOrange), for: .selected)
+        button.configure()
+            .iconPosition(.left)
+            .spacing(6)
+            .contentInsets(UIEdgeInsets(top: 8, left: 14, bottom: 8, right: 14))
+            .done()
+        button.backgroundColor = .secondarySystemBackground
+        button.st_roundedButton(cornerRadius: 8, borderWidth: 1, borderColor: .separator)
+        button.addTarget(self, action: #selector(self.onToggleButtonTapped(_:)), for: .touchUpInside)
+        return button
+    }
+
+    /// 勾选开关 —— 右侧图标 + 等长文字，验证 `.right` 位置下 selected 图标替换。
+    private func makeCheckableToggleButton() -> STIconBtn {
+        let button = STIconBtn(type: .custom)
+        button.setTitle("同意用户协议", for: .normal)
+        button.setTitle("同意用户协议", for: .selected)
+        button.setTitleColor(.secondaryLabel, for: .normal)
+        button.setTitleColor(.systemBlue, for: .selected)
+        button.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
+        button.setImage(self.symbolImage("circle", tint: .tertiaryLabel), for: .normal)
+        button.setImage(self.symbolImage("checkmark.circle.fill", tint: .systemBlue), for: .selected)
+        button.configure()
+            .iconPosition(.right)
+            .spacing(6)
+            .contentInsets(UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12))
+            .done()
+        button.addTarget(self, action: #selector(self.onToggleButtonTapped(_:)), for: .touchUpInside)
+        return button
+    }
+
+    @objc private func onToggleButtonTapped(_ sender: UIButton) {
+        sender.isSelected.toggle()
+    }
+
+    private func symbolImage(_ name: String, tint: UIColor) -> UIImage? {
+        return UIImage(systemName: name)?.withTintColor(tint, renderingMode: .alwaysOriginal)
     }
 
     // MARK: - STVerificationCodeBtn
