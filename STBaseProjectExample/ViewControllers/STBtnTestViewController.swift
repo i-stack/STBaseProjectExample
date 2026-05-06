@@ -36,12 +36,14 @@ final class STBtnTestViewController: BaseViewController {
         self.stackView.translatesAutoresizingMaskIntoConstraints = false
         self.scrollView.addSubview(self.stackView)
         NSLayoutConstraint.activate([
-            self.stackView.topAnchor.constraint(equalTo: self.scrollView.topAnchor, constant: STDeviceAdapter.navigationBarHeight + 20),
+            self.stackView.topAnchor.constraint(equalTo: self.scrollView.topAnchor, constant: 20),
             self.stackView.leadingAnchor.constraint(equalTo: self.scrollView.leadingAnchor, constant: 20),
             self.stackView.trailingAnchor.constraint(equalTo: self.scrollView.trailingAnchor, constant: -20),
             self.stackView.bottomAnchor.constraint(equalTo: self.scrollView.bottomAnchor, constant: -24),
             self.stackView.widthAnchor.constraint(equalTo: self.scrollView.widthAnchor, constant: -40)
         ])
+
+        self.applyLiquidGlassScrollLayout(self.scrollView)
     }
 
     private func setupButtons() {

@@ -18,8 +18,9 @@ class ViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         self.titleLabel.text = "导航目录"
-        self.topConstraint.constant = STDeviceAdapter.navigationBarHeight
+        self.topConstraint.constant = 0
         self.tableView.tableFooterView = UIView()
+        self.applyLiquidGlassScrollLayout(self.tableView)
         self.configData()
     }
 

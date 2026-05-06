@@ -45,8 +45,8 @@ class STHudViewController: BaseViewController {
             self.stackView.bottomAnchor.constraint(equalTo: self.scrollView.bottomAnchor, constant: -20),
             self.stackView.widthAnchor.constraint(equalTo: self.scrollView.widthAnchor, constant: -40)
         ])
-        
-//        self.st_configureScrollViewForGlass(self.scrollView)
+
+        self.applyLiquidGlassScrollLayout(self.scrollView)
     }
 
     private func setupButtons() {

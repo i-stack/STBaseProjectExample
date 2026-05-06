@@ -68,4 +68,18 @@ class BaseViewController: STBaseViewController, UIGestureRecognizerDelegate {
 
         return navigationController.viewControllers.count > 1
     }
+
+    /// 让滚动视图从导航栏下方穿过，并启用 Liquid Glass 玻璃导航栏。
+    /// 调用方需保证 scrollView 顶部钉在 view.topAnchor，而不是 contentTopAnchor。
+    func applyLiquidGlassScrollLayout(_ scrollView: UIScrollView) {
+        scrollView.contentInsetAdjustmentBehavior = .never
+        scrollView.contentInset.top = self.navBarHeight
+        scrollView.verticalScrollIndicatorInsets.top = self.navBarHeight
+        self.view.bringSubviewToFront(self.navigationBarView)
+        if #available(iOS 26.0, *) {
+            self.st_enableLiquidGlass()
+            self.navBarBackgroundColor = .clear
+            self.st_linkLiquidGlassVisibility(scrollView)
+        }
+    }
 }

@@ -66,16 +66,18 @@ class STTimerTestViewController: BaseViewController {
         ])
 
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: self.navigationBarView.bottomAnchor, constant: 12),
+            scrollView.topAnchor.constraint(equalTo: self.view.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: self.view.leadingAnchor, constant: 16),
             scrollView.trailingAnchor.constraint(equalTo: self.view.trailingAnchor, constant: -16),
             scrollView.bottomAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
-            stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 12),
             stackView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
             stackView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
             stackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
             stackView.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor)
         ])
+
+        self.applyLiquidGlassScrollLayout(scrollView)
     }
 
     private func addSection(title: String, actions: [(String, Selector)], to parent: UIStackView) {
