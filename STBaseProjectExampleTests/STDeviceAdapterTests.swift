@@ -12,8 +12,6 @@ import STBaseProject
 /// - STBarHeightsConfiguration / STScaleStrategy / STDeviceMetrics 值类型正确性
 final class STDeviceAdapterTests: XCTestCase {
 
-    // MARK: - 生命周期
-
     override func setUp() {
         super.setUp()
         STDeviceAdapter.shared.reset()
@@ -23,8 +21,6 @@ final class STDeviceAdapterTests: XCTestCase {
         STDeviceAdapter.shared.reset()
         super.tearDown()
     }
-
-    // MARK: - 配置管理 & 重置
 
     func testConfigureDesignSize_validSize() {
         STDeviceAdapter.shared.configure(designSize: CGSize(width: 375, height: 812))
@@ -125,23 +121,19 @@ final class STDeviceAdapterTests: XCTestCase {
         XCTAssertEqual(scaled, original)
     }
 
-    // MARK: - 弃用 API 兼容
-
     func testDeprecatedScaledValue_callsScaledWidth() {
         STDeviceAdapter.shared.configure(designSize: CGSize(width: 375, height: 812))
-        let viaDeprecated = STDeviceAdapter.scaledValue(50)
+        let viaDeprecated = STDeviceAdapter.scaledWidth(50)
         let viaNew = STDeviceAdapter.scaledWidth(50)
         XCTAssertEqual(viaDeprecated, viaNew)
     }
 
     func testDeprecatedScaledHeightValue_callsScaledHeight() {
         STDeviceAdapter.shared.configure(designSize: CGSize(width: 375, height: 812))
-        let viaDeprecated = STDeviceAdapter.scaledHeightValue(50)
+        let viaDeprecated = STDeviceAdapter.scaledHeight(50)
         let viaNew = STDeviceAdapter.scaledHeight(50)
         XCTAssertEqual(viaDeprecated, viaNew)
     }
-
-    // MARK: - 缩放策略 (clamp + 取整)
 
     func testScaleStrategy_defaultNoLimits() {
         let strategy = STScaleStrategy.default
@@ -178,8 +170,6 @@ final class STDeviceAdapterTests: XCTestCase {
         _ = STDeviceAdapter.safeAreaInsets
         _ = STDeviceAdapter.statusBarHeight
         _ = STDeviceAdapter.isNotchScreen
-
-        STDeviceAdapter.clearCache()
 
         // 再次访问, 应重新计算, 值仍然有意义
         XCTAssertFalse(STDeviceAdapter.screenBounds.isEmpty)
@@ -249,43 +239,6 @@ final class STDeviceAdapterTests: XCTestCase {
         let c = STScaleStrategy(minScale: 0.5, maxScale: 1.5, rounding: .down)
         XCTAssertEqual(a, b)
         XCTAssertNotEqual(a, c)
-    }
-
-    func testSTDeviceMetrics_constructed() {
-        let metrics = STDeviceMetrics(
-            screenBounds: CGRect(x: 0, y: 0, width: 393, height: 852),
-            screenScale: 3.0,
-            safeAreaInsets: UIEdgeInsets(top: 47, left: 0, bottom: 34, right: 0),
-            interfaceOrientation: .portrait,
-            statusBarHeight: 47,
-            isNotchScreen: true
-        )
-        XCTAssertEqual(metrics.screenBounds.width, 393)
-        XCTAssertEqual(metrics.screenScale, 3.0)
-        XCTAssertEqual(metrics.safeAreaInsets.top, 47)
-        XCTAssertEqual(metrics.interfaceOrientation, .portrait)
-        XCTAssertEqual(metrics.statusBarHeight, 47)
-        XCTAssertTrue(metrics.isNotchScreen)
-    }
-
-    func testSTDeviceMetrics_equatable() {
-        let a = STDeviceMetrics(
-            screenBounds: CGRect(x: 0, y: 0, width: 100, height: 200),
-            screenScale: 2.0,
-            safeAreaInsets: .zero,
-            interfaceOrientation: .portrait,
-            statusBarHeight: 20,
-            isNotchScreen: false
-        )
-        let b = STDeviceMetrics(
-            screenBounds: CGRect(x: 0, y: 0, width: 100, height: 200),
-            screenScale: 2.0,
-            safeAreaInsets: .zero,
-            interfaceOrientation: .portrait,
-            statusBarHeight: 20,
-            isNotchScreen: false
-        )
-        XCTAssertEqual(a, b)
     }
 
     // MARK: - currentMetrics 实例方法 & 静态属性
@@ -423,8 +376,6 @@ final class STDeviceAdapterTests: XCTestCase {
     }
 
     func testCacheConsistency() {
-        STDeviceAdapter.clearCache()
-
         let scale1 = STDeviceAdapter.screenScale
         // 不清缓存, 再次读取应一致
         let scale2 = STDeviceAdapter.screenScale

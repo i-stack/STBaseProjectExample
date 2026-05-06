@@ -19,7 +19,11 @@ final class STContactPermissionStatusTests: XCTestCase {
     }
 
     func testMappingLimited() {
-        XCTAssertEqual(STContactPermissionStatus(.limited), .limited)
+        if #available(iOS 18.0, *) {
+            XCTAssertEqual(STContactPermissionStatus(.limited), .limited)
+        } else {
+            // Fallback on earlier versions
+        }
     }
 
     func testMappingAuthorized() {
