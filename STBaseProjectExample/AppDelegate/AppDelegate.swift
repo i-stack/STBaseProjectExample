@@ -14,7 +14,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        STDeviceAdapter.shared.configureNavigationBar(regularHeight: 88, safeAreaHeight: 106, containerHeight: 50)
+        STDeviceAdapter.shared.configureNavigationBar(contentHeight: 50)
         STDeviceAdapter.shared.configure(designSize: CGSize(width: 375, height: 812))
         Bundle.st_setCustomLanguage("zh-Hans")
         self.configureLogging()
