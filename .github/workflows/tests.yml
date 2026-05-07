@@ -1,0 +1,173 @@
+# 集成测试 CI：跑 STBaseProjectExample workspace 中的 466 单测 + UI 测试。
+# Example 工程通过 relativePath = ../STBaseProject 引用本地 SPM 包，
+# 所以需要把 i-stack/STBaseProject 仓库 checkout 到平级目录。
+
+name: iOS Tests
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+  repository_dispatch:
+    types: [ stbaseproject-updated ]
+
+concurrency:
+  group: ios-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    env:
+      WORKSPACE: STBaseProjectExample.xcworkspace
+      SCHEME:    STBaseProjectExample
+      RESULT:    build/result.xcresult
+
+    steps:
+      - name: Checkout Example
+        uses: actions/checkout@v4
+        with:
+          path: STBaseProjectExample
+
+      - name: Checkout STBaseProject (sibling)
+        uses: actions/checkout@v4
+        with:
+          repository: i-stack/STBaseProject
+          ref: ${{ github.event.client_payload.sha || 'main' }}
+          path: STBaseProject
+
+      - name: Show layout
+        run: |
+          ls -la
+          echo "--- Example ---"
+          ls -la STBaseProjectExample
+          echo "--- STBaseProject ---"
+          ls -la STBaseProject
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            STBaseProjectExample/Pods
+            ~/.cocoapods
+          key: pods-${{ runner.os }}-${{ hashFiles('STBaseProjectExample/Podfile.lock') }}
+          restore-keys: |
+            pods-${{ runner.os }}-
+
+      - name: Install CocoaPods
+        working-directory: STBaseProjectExample
+        run: |
+          gem install cocoapods -v 1.16.2 --no-document --user-install
+          GEM_USER_BIN="$(gem env user_gemhome)/bin"
+          export PATH="$GEM_USER_BIN:$PATH"
+          echo "$GEM_USER_BIN" >> "$GITHUB_PATH"
+          pod --version
+          pod install --repo-update
+
+      - name: Pick iOS Simulator
+        id: sim
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun simctl list devices available -j > /tmp/devices.json
+          UDID="$(python3 <<'PY'
+          import json, sys
+          with open("/tmp/devices.json") as f:
+              data = json.load(f)["devices"]
+          for runtime in sorted([k for k in data if "iOS" in k], reverse=True):
+              for dv in data[runtime]:
+                  if dv.get("isAvailable") and "iPhone" in dv["name"]:
+                      print(dv["udid"]); sys.exit(0)
+          sys.exit("No available iPhone simulator found")
+          PY
+          )"
+          echo "Picked simulator: $UDID"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+
+      - name: Resolve SPM dependencies
+        working-directory: STBaseProjectExample
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME"
+
+      - name: Run tests
+        working-directory: STBaseProjectExample
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p build
+          xcodebuild test \
+            -workspace "$WORKSPACE" \
+            -scheme    "$SCHEME" \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
+            -resultBundlePath "$RESULT" \
+            -parallel-testing-enabled YES \
+            -test-iterations 2 \
+            -retry-tests-on-failure \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=YES \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            | tee build/xcodebuild.log
+
+      - name: Test summary
+        if: always()
+        working-directory: STBaseProjectExample
+        shell: bash
+        run: |
+          if [ ! -d "$RESULT" ]; then
+            echo "::error::No xcresult bundle produced"; exit 1
+          fi
+          xcrun xcresulttool get test-results summary \
+            --path "$RESULT" --format json > build/summary.json
+          python3 - <<'PY'
+          import json, os
+          with open("build/summary.json") as f:
+              d = json.load(f)
+          total = d["passedTests"] + d["failedTests"] + d["skippedTests"]
+          print(f"Total:   {total}")
+          print(f"Passed:  {d['passedTests']}")
+          print(f"Failed:  {d['failedTests']}")
+          print(f"Skipped: {d['skippedTests']}")
+          print(f"Result:  {d['result']}")
+          step = os.environ.get("GITHUB_STEP_SUMMARY")
+          if step:
+              with open(step, "a") as f:
+                  f.write("## iOS Test Summary\n\n")
+                  f.write(f"| Metric | Value |\n|---|---|\n")
+                  f.write(f"| Total   | {total} |\n")
+                  f.write(f"| Passed  | {d['passedTests']} |\n")
+                  f.write(f"| Failed  | {d['failedTests']} |\n")
+                  f.write(f"| Skipped | {d['skippedTests']} |\n")
+                  f.write(f"| Result  | **{d['result']}** |\n")
+                  for tf in d.get("testFailures", [])[:50]:
+                      f.write(f"\n- ❌ `{tf.get('testIdentifierString','?')}` — {tf.get('failureText','')}\n")
+          PY
+
+      - name: Upload xcresult on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresult-${{ github.run_id }}
+          path: STBaseProjectExample/build/result.xcresult
+          retention-days: 14
+
+      - name: Upload xcodebuild log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log-${{ github.run_id }}
+          path: STBaseProjectExample/build/xcodebuild.log
+          retention-days: 7
