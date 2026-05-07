@@ -17,31 +17,31 @@ final class STMarkdownMermaidCacheKeyTests: XCTestCase {
 
     func testDifferentCodesProduceDifferentKeys() {
         let renderer = STMarkdownMermaidRenderer.shared
-        let keyA = renderer.cacheKey("graph LR\n  A --> B", false)
-        let keyB = renderer.cacheKey("graph TD\n  X --> Y", false)
+        let keyA = renderer.cacheKey("graph LR\n  A --> B", .light)
+        let keyB = renderer.cacheKey("graph TD\n  X --> Y", .light)
         XCTAssertNotEqual(keyA, keyB, "不同代码应产生不同 cacheKey")
     }
 
     func testSameCodeSameThemeProduceEqualKeys() {
         let renderer = STMarkdownMermaidRenderer.shared
         let code = "pie title Pets\n\"Dogs\": 386"
-        let key1 = renderer.cacheKey(code, false)
-        let key2 = renderer.cacheKey(code, false)
+        let key1 = renderer.cacheKey(code, .light)
+        let key2 = renderer.cacheKey(code, .light)
         XCTAssertEqual(key1, key2, "相同代码和主题应产生相同 cacheKey")
     }
 
     func testDarkAndLightThemeProduceDifferentKeys() {
         let renderer = STMarkdownMermaidRenderer.shared
         let code = "flowchart LR\n  A --> B"
-        let lightKey = renderer.cacheKey(code, false)
-        let darkKey = renderer.cacheKey(code, true)
+        let lightKey = renderer.cacheKey(code, .light)
+        let darkKey = renderer.cacheKey(code, .dark)
         XCTAssertNotEqual(lightKey, darkKey, "深色/浅色主题应产生不同 cacheKey")
     }
 
     func testKeyFormatIsCodeBased() {
         let renderer = STMarkdownMermaidRenderer.shared
         let code = "graph LR\n  A --> B"
-        let key = renderer.cacheKey(code, false)
+        let key = renderer.cacheKey(code, .light)
         XCTAssertTrue(key.hasSuffix(code), "cacheKey 应以完整代码字符串结尾，而非 hashValue")
         XCTAssertTrue(key.hasPrefix("0_"), "浅色主题 cacheKey 应以 '0_' 开头")
     }
@@ -49,7 +49,7 @@ final class STMarkdownMermaidCacheKeyTests: XCTestCase {
     func testDarkKeyFormatIsCodeBased() {
         let renderer = STMarkdownMermaidRenderer.shared
         let code = "sequenceDiagram\n  A->>B: Hello"
-        let key = renderer.cacheKey(code, true)
+        let key = renderer.cacheKey(code, .dark)
         XCTAssertTrue(key.hasPrefix("1_"), "深色主题 cacheKey 应以 '1_' 开头")
         XCTAssertTrue(key.hasSuffix(code), "cacheKey 应包含完整代码字符串")
     }
@@ -69,7 +69,7 @@ final class STMarkdownMermaidCacheKeyTests: XCTestCase {
         ]
         var keys = Set<String>()
         for code in codes {
-            let key = renderer.cacheKey(code, false)
+            let key = renderer.cacheKey(code, .light)
             XCTAssertTrue(keys.insert(key).inserted, "代码 '\(code)' 产生的 key '\(key)' 与已有 key 碰撞")
         }
     }
@@ -152,8 +152,8 @@ final class STMarkdownTableViewModelCitationTests: XCTestCase {
         let viewModel = STMarkdownTableViewModel(from: table, style: self.style)
 
         XCTAssertTrue(viewModel.hasHeader)
-        XCTAssertTrue(viewModel.cells[0][0].isHeader, "第一行应标记为 header")
-        XCTAssertFalse(viewModel.cells[1][0].isHeader, "数据行不应标记为 header")
+        XCTAssertTrue(viewModel.cells[0][0].role.isHeader, "第一行应标记为 header")
+        XCTAssertFalse(viewModel.cells[1][0].role.isHeader, "数据行不应标记为 header")
     }
 
     func testNoHeaderWhenHeaderNil() {
@@ -164,7 +164,7 @@ final class STMarkdownTableViewModelCitationTests: XCTestCase {
         let viewModel = STMarkdownTableViewModel(from: table, style: self.style)
 
         XCTAssertFalse(viewModel.hasHeader)
-        XCTAssertFalse(viewModel.cells[0][0].isHeader)
+        XCTAssertFalse(viewModel.cells[0][0].role.isHeader)
     }
 
     // MARK: - Badge Replacement

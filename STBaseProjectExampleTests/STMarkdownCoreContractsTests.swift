@@ -96,13 +96,13 @@ final class STMarkdownCoreContractsTests: XCTestCase {
     }
 
     func testPreprocessContextMarksAppliedRulesInOrder() {
-        var context = STMarkdownPreprocessContext(isDebug: true)
+        var context = STMarkdownPreprocessContext(debugMode: .enabled)
         let first = CoreMockRule(name: "rule-1", shouldApplyResult: true, replacement: "x")
 
         context.markApplied(first)
         context.markApplied("rule-2")
 
-        XCTAssertTrue(context.isDebug)
+        XCTAssertTrue(context.debugMode.isEnabled)
         XCTAssertEqual(context.appliedRules, ["rule-1", "rule-2"])
     }
 

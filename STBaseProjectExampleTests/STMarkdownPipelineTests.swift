@@ -669,14 +669,14 @@ final class STMarkdownPipelineTests: XCTestCase {
             altText: "",
             title: nil,
             style: .default,
-            inline: true
+            placement: .inline
         )
         let block = renderer.renderImage(
             url: "",
             altText: "",
             title: nil,
             style: .default,
-            inline: false
+            placement: .block
         )
 
         XCTAssertTrue(inline?.string.contains("[img]") == true)
@@ -786,7 +786,7 @@ final class STMarkdownPipelineTests: XCTestCase {
         let loader = MockImageLoader()
         let renderer = STMarkdownAsyncImageRenderer(loader: loader)
 
-        let rendered = renderer.renderImage(url: "", altText: "bad", title: nil, style: .default, inline: true)
+        let rendered = renderer.renderImage(url: "", altText: "bad", title: nil, style: .default, placement: .inline)
 
         XCTAssertNil(rendered)
         XCTAssertNil(loader.lastURL)
@@ -800,7 +800,7 @@ final class STMarkdownPipelineTests: XCTestCase {
             altText: "wide",
             title: nil,
             style: .default,
-            inline: false
+            placement: .block
         )
         guard let attachment = attributed?.attribute(.attachment, at: 0, effectiveRange: nil) as? STMarkdownAsyncImageAttachment else {
             return XCTFail("Expected async image attachment")
@@ -835,7 +835,7 @@ final class STMarkdownPipelineTests: XCTestCase {
                 altText: "release",
                 title: nil,
                 style: .default,
-                inline: true
+                placement: .inline
             )
             weakAttachment = attributed?.attribute(.attachment, at: 0, effectiveRange: nil) as? STMarkdownAsyncImageAttachment
             XCTAssertNotNil(weakAttachment)
@@ -1382,7 +1382,7 @@ final class STMarkdownPipelineTests: XCTestCase {
                 altText: "",
                 title: nil,
                 style: .default,
-                inline: true
+                placement: .inline
             )
 
             XCTAssertEqual(loader.requestedURL?.absoluteString, "https://example.com/image.png")
@@ -2202,13 +2202,13 @@ final class STMarkdownPipelineTests: XCTestCase {
     }
 
     /// 回归 #29：Mermaid renderer 缓存改用 NSCache，移除 `imageCache` 字典后
-    /// `cachedImage(for:isDark:)` 仍可正确返回已缓存图。
+    /// `cachedImage(for:theme:)` 仍可正确返回已缓存图。
     @MainActor
     func testMermaidRendererCachedImageRoundTripsThroughNSCache() {
         // 直接通过 cachedImage API 验证，不触发 WKWebView。
         let renderer = STMarkdownMermaidRenderer.shared
         // 未渲染过 → 命中 nil
-        let initial = renderer.cachedImage(for: "graph TD; A-->B", isDark: false)
+        let initial = renderer.cachedImage(for: "graph TD; A-->B", theme: .light)
         // 这里只校验不会崩溃以及类型契约；具体缓存写入需要 WKWebView 异步流程。
         XCTAssertTrue(initial == nil || initial != nil)
     }
@@ -2272,7 +2272,7 @@ final class STMarkdownPipelineTests: XCTestCase {
             altText: "x",
             title: nil,
             style: .default,
-            inline: true
+            placement: .inline
         )
         XCTAssertNotNil(rendered)
         XCTAssertEqual(loader.lastURL?.absoluteString, "https://example.com/assets/x.png",
@@ -2288,7 +2288,7 @@ final class STMarkdownPipelineTests: XCTestCase {
             altText: "",
             title: nil,
             style: .default,
-            inline: false
+            placement: .block
         )
         XCTAssertNil(rendered)
         XCTAssertNil(loader.lastURL)
@@ -2306,7 +2306,7 @@ final class STMarkdownPipelineTests: XCTestCase {
             altText: "",
             title: nil,
             style: .default,
-            inline: false
+            placement: .block
         )
         guard let attachment = attributed?.attribute(.attachment, at: 0, effectiveRange: nil) as? STMarkdownAsyncImageAttachment else {
             return XCTFail("Expected async image attachment")
@@ -2460,7 +2460,7 @@ final class STMarkdownPipelineTests: XCTestCase {
             altText: "",
             title: nil,
             style: .default,
-            inline: false
+            placement: .block
         )
         guard let attachment = attributed?.attribute(.attachment, at: 0, effectiveRange: nil) as? STMarkdownAsyncImageAttachment else {
             return XCTFail("Expected async image attachment")
@@ -2478,13 +2478,6 @@ final class STMarkdownPipelineTests: XCTestCase {
 
         XCTAssertEqual(attachment.bounds.width, 280, accuracy: 0.5)
         XCTAssertEqual(attachment.bounds.height, 140, accuracy: 0.5)
-    }
-
-    @MainActor
-    func testMermaidRendererKeepsDeprecatedImageCacheAPI() {
-        let cache = STMarkdownMermaidRenderer.shared.imageCache
-
-        XCTAssertNotNil(cache)
     }
 
     // MARK: - 第四轮 Rendering 修复回归
