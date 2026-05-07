@@ -205,7 +205,7 @@ class STHudViewController: BaseViewController {
             detailTextColor: .darkGray,
             successColor: .systemGreen,
             cornerRadius: 14,
-            shadowEnabled: true
+            shadow: .enabled
         )
         let config = STHUDConfig(type: .success, title: "操作成功", detailText: "浅色主题效果", autoHide: true, theme: theme)
         self.view.st_showHUD(with: config)
@@ -220,7 +220,7 @@ class STHudViewController: BaseViewController {
             detailTextColor: UIColor.white.withAlphaComponent(0.7),
             successColor: .white,
             cornerRadius: 16,
-            shadowEnabled: true
+            shadow: .enabled
         )
         let config = STHUDConfig(type: .success, title: "支付成功", detailText: "品牌色主题", autoHide: true, theme: theme)
         self.view.st_showHUD(with: config)
@@ -241,7 +241,7 @@ class STHudViewController: BaseViewController {
     @objc private func testThemeNoShadow() {
         let theme = STHUDTheme(
             cornerRadius: 4,
-            shadowEnabled: false
+            shadow: .disabled
         )
         let config = STHUDConfig(type: .info, title: "无阴影", detailText: "小圆角，无阴影效果", autoHide: true, theme: theme)
         self.view.st_showHUD(with: config)

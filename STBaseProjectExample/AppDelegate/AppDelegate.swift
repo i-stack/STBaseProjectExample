@@ -54,7 +54,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         STHUD.sharedHUD.defaultIconPosition = .left
         var theme = STHUDTheme()
 //        theme.cornerRadius = 12
-//        theme.shadowEnabled = true
+//        theme.shadow = .enabled
 //        theme.backgroundColor = UIColor.black.withAlphaComponent(0.7)//UIColor.color(hex: "#141415").withAlphaComponent(0.7)
         theme.textColor = UIColor.white
         theme.detailTextColor = UIColor.white.withAlphaComponent(0.7)
