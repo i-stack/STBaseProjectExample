@@ -17,7 +17,10 @@ private final class MockRequestingViewModel: STBaseViewModel {
     }
 
     var capturedRequest: CapturedRequest?
+    var capturedURLRequest: URLRequest?
     var mockedResponse: STHTTPResponse?
+    var responseSubjects: [PassthroughSubject<STHTTPResponse, Never>] = []
+    var dispatchCancelCount = 0
 
     override func st_dispatchRequestPublisher(
         url: String,
@@ -31,6 +34,22 @@ private final class MockRequestingViewModel: STBaseViewModel {
             parameters: parameters,
             encodingType: encodingType
         )
+        if !self.responseSubjects.isEmpty {
+            let subject = self.responseSubjects.removeFirst()
+            return subject
+                .handleEvents(receiveCancel: { [weak self] in
+                    self?.dispatchCancelCount += 1
+                })
+                .eraseToAnyPublisher()
+        }
+        guard let mockedResponse = self.mockedResponse else {
+            return Empty<STHTTPResponse, Never>().eraseToAnyPublisher()
+        }
+        return Just(mockedResponse).eraseToAnyPublisher()
+    }
+
+    override func st_dispatchRequestPublisher(_ request: URLRequest) -> AnyPublisher<STHTTPResponse, Never> {
+        self.capturedURLRequest = request
         guard let mockedResponse = self.mockedResponse else {
             return Empty<STHTTPResponse, Never>().eraseToAnyPublisher()
         }
@@ -116,6 +135,118 @@ final class STBaseViewModelNetworkTests: XCTestCase {
             return XCTFail("Expected success result")
         }
         XCTAssertEqual(value, responseBody)
+    }
+
+    func testRequestPublisherIsLazyUntilSubscribed() throws {
+        let viewModel = MockRequestingViewModel()
+        viewModel.mockedResponse = try self.makeSuccessHTTPResponse()
+
+        let publisher = viewModel.st_requestPublisher(
+            url: "https://example.com/lazy",
+            responseType: MockUserDTO.self
+        )
+        XCTAssertNil(viewModel.capturedRequest)
+
+        let completionExpectation = expectation(description: "lazy publisher emits after subscription")
+        publisher
+            .sink(
+                receiveCompletion: { _ in },
+                receiveValue: { _ in completionExpectation.fulfill() }
+            )
+            .store(in: &self.cancellables)
+
+        wait(for: [completionExpectation], timeout: 1.0)
+        XCTAssertEqual(viewModel.capturedRequest?.url, "https://example.com/lazy")
+    }
+
+    func testRequestPublisherCancellationReturnsLoadingStateToIdleAndCancelsUpstream() {
+        let viewModel = MockRequestingViewModel()
+        viewModel.requestConfig.showLoading = true
+        viewModel.responseSubjects = [PassthroughSubject<STHTTPResponse, Never>()]
+
+        var states: [STLoadingState] = []
+        viewModel.loadingState
+            .sink { states.append($0) }
+            .store(in: &self.cancellables)
+
+        let token = viewModel.st_requestPublisher(
+            url: "https://example.com/cancel",
+            responseType: MockUserDTO.self
+        )
+        .sink(
+            receiveCompletion: { _ in },
+            receiveValue: { _ in XCTFail("Expected cancellation before response") }
+        )
+
+        XCTAssertEqual(viewModel.capturedRequest?.url, "https://example.com/cancel")
+        token.cancel()
+
+        XCTAssertEqual(viewModel.dispatchCancelCount, 1)
+        XCTAssertTrue(states.contains { state in
+            if case .loading = state { return true }
+            return false
+        })
+        XCTAssertEqual(viewModel.loadingState.value, .idle)
+    }
+
+    func testConcurrentRequestsKeepLoadingUntilAllRequestsFinish() throws {
+        let viewModel = MockRequestingViewModel()
+        viewModel.requestConfig.showLoading = true
+        let firstSubject = PassthroughSubject<STHTTPResponse, Never>()
+        let secondSubject = PassthroughSubject<STHTTPResponse, Never>()
+        viewModel.responseSubjects = [firstSubject, secondSubject]
+
+        viewModel.st_requestPublisher(
+            url: "https://example.com/first",
+            responseType: MockUserDTO.self
+        )
+        .sink(receiveCompletion: { _ in }, receiveValue: { _ in })
+        .store(in: &self.cancellables)
+
+        viewModel.st_requestPublisher(
+            url: "https://example.com/second",
+            responseType: MockUserDTO.self
+        )
+        .sink(receiveCompletion: { _ in }, receiveValue: { _ in })
+        .store(in: &self.cancellables)
+
+        firstSubject.send(try self.makeSuccessHTTPResponse(urlString: "https://example.com/first"))
+        firstSubject.send(completion: .finished)
+        XCTAssertEqual(viewModel.loadingState.value, .loading)
+
+        secondSubject.send(try self.makeSuccessHTTPResponse(urlString: "https://example.com/second"))
+        secondSubject.send(completion: .finished)
+        XCTAssertEqual(viewModel.loadingState.value, .loaded)
+    }
+
+    func testURLRequestOverloadPreservesOriginalRequest() throws {
+        let viewModel = MockRequestingViewModel()
+        viewModel.mockedResponse = try self.makeSuccessHTTPResponse()
+
+        var request = URLRequest(url: URL(string: "https://example.com/raw")!)
+        request.httpMethod = "POST"
+        request.setValue("application/custom", forHTTPHeaderField: "Content-Type")
+        request.setValue("signature-value", forHTTPHeaderField: "X-Signature")
+        request.httpBody = Data("raw-body=1&not-json=true".utf8)
+        request.timeoutInterval = 7
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+
+        let completionExpectation = expectation(description: "URLRequest overload emits value")
+        viewModel.st_request(request, responseType: MockUserDTO.self) { result in
+            guard case .success = result else {
+                return XCTFail("Expected URLRequest overload success")
+            }
+            completionExpectation.fulfill()
+        }
+
+        wait(for: [completionExpectation], timeout: 1.0)
+        XCTAssertEqual(viewModel.capturedURLRequest?.url, request.url)
+        XCTAssertEqual(viewModel.capturedURLRequest?.httpMethod, "POST")
+        XCTAssertEqual(viewModel.capturedURLRequest?.value(forHTTPHeaderField: "Content-Type"), "application/custom")
+        XCTAssertEqual(viewModel.capturedURLRequest?.value(forHTTPHeaderField: "X-Signature"), "signature-value")
+        XCTAssertEqual(viewModel.capturedURLRequest?.httpBody, request.httpBody)
+        XCTAssertEqual(viewModel.capturedURLRequest?.timeoutInterval, 7)
+        XCTAssertEqual(viewModel.capturedURLRequest?.cachePolicy, .reloadIgnoringLocalCacheData)
     }
 
     func testRequestFailureMapsTimeoutErrorAndPublishesFailedState() {
