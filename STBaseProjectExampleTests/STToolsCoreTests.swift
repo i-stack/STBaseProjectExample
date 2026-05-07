@@ -51,6 +51,14 @@ final class STToolsCoreTests: XCTestCase {
             end: CGPoint(x: 0, y: 10)
         )
         XCTAssertEqual(angle, 90, accuracy: 0.0001)
+
+        let offsetCenterAngle = STGeometry.angle(
+            onCircleWithRadius: 10,
+            center: CGPoint(x: 5, y: 5),
+            start: CGPoint(x: 15, y: 5),
+            end: CGPoint(x: 5, y: 15)
+        )
+        XCTAssertEqual(offsetCenterAngle, 90, accuracy: 0.0001)
     }
 
     func testJSONValueConversionAndCodable() throws {

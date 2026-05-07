@@ -34,7 +34,7 @@ class STTimerTestViewController: BaseViewController {
 
         self.addSection(title: "STTimer", actions: [
             ("创建 1s 定时器", #selector(self.createTimer)),
-            ("start(immediately: true)", #selector(self.startTimer)),
+            ("start(firstFire: .immediate)", #selector(self.startTimer)),
             ("pause()", #selector(self.pauseTimer)),
             ("resume()", #selector(self.resumeTimer)),
             ("stop()", #selector(self.stopTimer)),
@@ -138,10 +138,10 @@ private extension STTimerTestViewController {
             self.appendLog("请先创建 STTimer")
             return
         }
-        timer.start(immediately: true) { [weak self] timer in
+        timer.start(firstFire: .immediate) { [weak self] timer in
             self?.appendLog("STTimer 触发: fireCount=\(timer.fireCount), isRunning=\(timer.isRunning), isPaused=\(timer.isPaused)")
         }
-        self.appendLog("调用 STTimer.start(immediately: true)")
+        self.appendLog("调用 STTimer.start(firstFire: .immediate)")
     }
 
     @objc func pauseTimer() {

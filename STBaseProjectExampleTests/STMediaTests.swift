@@ -425,7 +425,7 @@ final class STScanViewTests: XCTestCase {
         let frame = CGRect(x: 0, y: 0, width: 320, height: 568)
         let view = STScanView(frame: frame)
         // 关闭 safe area 适配以得到确定性结果
-        view.setSafeAreaAdaptation(enabled: false)
+        view.setSafeAreaAdaptation(.disabled)
         let rect = view.getScanAreaRect()
         // 扫描框应在视图宽度内
         XCTAssertGreaterThan(rect.minX, 0)
@@ -436,7 +436,7 @@ final class STScanViewTests: XCTestCase {
 
     func test_scanAreaRect_barCodeType_isWider() {
         let view = STScanView(frame: CGRect(x: 0, y: 0, width: 320, height: 568))
-        view.setSafeAreaAdaptation(enabled: false)
+        view.setSafeAreaAdaptation(.disabled)
         view.st_configScanType(scanType: .qrCode)
         let qrRect = view.getScanAreaRect()
         view.st_configScanType(scanType: .barCode)
