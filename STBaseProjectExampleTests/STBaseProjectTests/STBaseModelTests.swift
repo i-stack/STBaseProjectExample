@@ -14,6 +14,7 @@
 //
 
 import XCTest
+import Foundation
 @testable import STBaseProject
 
 // MARK: - Test Models
@@ -403,6 +404,270 @@ final class STBaseModelTests: XCTestCase {
         XCTAssertEqual(model.mapping.count, 3)
         XCTAssertEqual(model.mapping["c"] as? Int, 3)
     }
+
+    // MARK: - st_toDictionary (standard mode)
+
+    func test_st_toDictionary_standard_mode_applies_key_mapping_and_skips_internal_properties() {
+        func toInt(_ value: Any?) -> Int? {
+            if let i = value as? Int { return i }
+            if let n = value as? NSNumber { return n.intValue }
+            return nil
+        }
+
+        func toDouble(_ value: Any?) -> Double? {
+            if let d = value as? Double { return d }
+            if let n = value as? NSNumber { return n.doubleValue }
+            return nil
+        }
+
+        func toBool(_ value: Any?) -> Bool? {
+            if let b = value as? Bool { return b }
+            if let n = value as? NSNumber { return n.boolValue }
+            return nil
+        }
+
+        func toString(_ value: Any?) -> String? {
+            if let s = value as? String { return s }
+            if let ns = value as? NSString { return String(ns) }
+            return nil
+        }
+
+        let user = STUserModel()
+        user.userId = 1
+        user.userName = "n"
+        user.isVip = true
+        user.score = 2.5
+        user.age = 3
+        user.nickname = "nn"
+        user.address = STAddressModel()
+        user.address?.city = "BJ"
+        user.address?.zip = "100000"
+
+        let dict = user.st_toDictionary()
+
+        XCTAssertEqual(toInt(dict["user_id"]) ?? -1, 1)
+        XCTAssertEqual(toString(dict["user_name"]) ?? "", "n")
+        XCTAssertEqual(toBool(dict["is_vip"]) ?? false, true)
+        XCTAssertEqual(toDouble(dict["score"]) ?? 0.0, 2.5, accuracy: 0.0001)
+        XCTAssertEqual(toInt(dict["age"]) ?? -1, 3)
+        XCTAssertEqual(toString(dict["nick_name"]) ?? "", "nn")
+
+        // key mapping 之后不应泄漏属性名
+        XCTAssertNil(dict["userId"])
+        XCTAssertNil(dict["userName"])
+        XCTAssertNil(dict["isVip"])
+        XCTAssertNil(dict["nickname"])
+
+        // 内部 reserved 属性名不应出现在序列化结果中
+        XCTAssertNil(dict["st_isFlexibleMode"])
+    }
+
+    // MARK: - st_getArray / st_getDictionary / st_toRawDictionary (flexible mode)
+
+    func test_flexible_mode_st_getArray_st_getDictionary_and_toRawDictionary() {
+        let model = STBaseModel()
+        model.st_isFlexibleMode = true
+        model.st_update(from: [
+            "name": "alice",
+            "age": 30,
+            "arr": [1, "2", NSNull(), true],
+            "dict": ["k1": "v1", "k2": 2],
+            "extra": NSNull()
+        ])
+
+        XCTAssertEqual(model.st_getString(forKey: "name"), "alice")
+        XCTAssertEqual(model.st_getInt(forKey: "age"), 30)
+        XCTAssertEqual(model.st_valueKind(forKey: "arr"), .array)
+        XCTAssertEqual(model.st_valueKind(forKey: "dict"), .dictionary)
+        XCTAssertEqual(model.st_valueKind(forKey: "extra"), .null)
+
+        let raw = model.st_toRawDictionary()
+        XCTAssertEqual((raw["name"]?.stringValue), "alice")
+
+        // Array: [Int, String, Null, Bool]
+        let arr = model.st_getArray(forKey: "arr")
+        XCTAssertEqual(arr.count, 4)
+        XCTAssertEqual(arr[0].intValue, 1)
+        XCTAssertEqual(arr[1].stringValue, "2")
+        XCTAssertEqual(arr[2].isNull, true)
+        XCTAssertEqual(arr[3].boolValue, true)
+
+        // Dictionary: {"k1":"v1","k2":2}
+        let dict = model.st_getDictionary(forKey: "dict")
+        XCTAssertEqual(dict.count, 2)
+        XCTAssertEqual(dict["k1"]?.stringValue, "v1")
+        XCTAssertEqual(dict["k2"]?.intValue, 2)
+
+        // processedData: should return concrete Any values
+        let processedArr = model.st_getValue(forKey: "arr") as? [Any]
+        XCTAssertEqual(processedArr?.count, 4)
+        XCTAssertEqual(processedArr?[0] as? Int, 1)
+        XCTAssertEqual(processedArr?[1] as? String, "2")
+
+        let processedExtra = model.st_getValue(forKey: "extra")
+        XCTAssertTrue(processedExtra is NSNull)
+    }
+
+    func test_flexible_mode_st_getAllKeys_and_st_containsKey() {
+        let model = STBaseModel()
+        model.st_isFlexibleMode = true
+        model.st_update(from: ["name": "alice", "age": 30])
+
+        let keys = Set(model.st_getAllKeys())
+        XCTAssertTrue(keys.contains("name"))
+        XCTAssertTrue(keys.contains("age"))
+        XCTAssertFalse(model.st_containsKey("missing"))
+    }
+
+    func test_flexible_mode_st_getValueType_string_compat() {
+        let model = STBaseModel()
+        model.st_isFlexibleMode = true
+        model.st_update(from: [
+            "name": "alice",
+            "age": 30,
+            "isVip": true,
+            "score": 1.5,
+            "arr": [1, 2],
+            "dict": ["k": "v"],
+            "extra": NSNull()
+        ])
+
+        XCTAssertEqual(model.st_getValueType(forKey: "name"), "String")
+        XCTAssertEqual(model.st_getValueType(forKey: "age"), "Int")
+        XCTAssertEqual(model.st_getValueType(forKey: "isVip"), "Bool")
+        XCTAssertEqual(model.st_getValueType(forKey: "score"), "Double")
+        XCTAssertEqual(model.st_getValueType(forKey: "arr"), "Array")
+        XCTAssertEqual(model.st_getValueType(forKey: "dict"), "Dictionary")
+        XCTAssertEqual(model.st_getValueType(forKey: "extra"), "Null")
+        XCTAssertEqual(model.st_getValueType(forKey: "missing"), "undefined")
+    }
+
+    // MARK: - Codable encode (flexible mode)
+
+    func test_codable_encode_flexible_mode_uses_rawData_keys_and_values() throws {
+        let model = STBaseModel()
+        model.st_isFlexibleMode = true
+        model.st_update(from: [
+            "name": "alice",
+            "age": 30,
+            "isVip": true,
+            "score": 1.5,
+            "extra": NSNull(),
+            "arr": [1, 2],
+            "dict": ["k": "v"]
+        ])
+
+        let data = try JSONEncoder().encode(model)
+        let decoded = try JSONDecoder().decode([String: STJSONValue].self, from: data)
+
+        XCTAssertEqual(decoded["name"]?.stringValue, "alice")
+        XCTAssertEqual(decoded["age"]?.intValue, 30)
+        XCTAssertEqual(decoded["isVip"]?.boolValue, true)
+        XCTAssertEqual(decoded["score"]?.doubleValue ?? 0.0, 1.5, accuracy: 0.0001)
+        XCTAssertEqual(decoded["extra"]?.isNull, true)
+        XCTAssertEqual(decoded["arr"]?.arrayValue?.count, 2)
+        XCTAssertEqual(decoded["dict"]?.objectValue?["k"]?.stringValue, "v")
+    }
+
+    // MARK: - st_fromArray / st_fromJSONArray
+
+    func test_st_fromArray_returns_subclass_instances() {
+        let models = STUserModel.st_fromArray([
+            ["user_id": 1, "user_name": "alice", "is_vip": false, "score": 1.0, "age": 18, "nick_name": "n1"],
+            ["user_id": 2, "user_name": "bob", "is_vip": true, "score": 2.0, "age": 20, "nick_name": "n2"]
+        ])
+
+        XCTAssertEqual(models.count, 2)
+        XCTAssertEqual((models[0] as? STUserModel)?.userId, 1)
+        XCTAssertEqual((models[1] as? STUserModel)?.userId, 2)
+        XCTAssertTrue(models.allSatisfy { $0 is STUserModel })
+    }
+
+    func test_st_fromJSONArray_parses_json_array_into_models() throws {
+        let rawArray: [[String: Any]] = [
+            ["user_id": 7, "user_name": "ada", "is_vip": false, "score": 1.5, "age": 18, "nick_name": "lovelace"]
+        ]
+        let data = try JSONSerialization.data(withJSONObject: rawArray, options: [])
+
+        let models = try XCTUnwrap(STUserModel.st_fromJSONArray(data))
+        XCTAssertEqual(models.count, 1)
+
+        let user = try XCTUnwrap(models.first as? STUserModel)
+        XCTAssertEqual(user.userId, 7)
+        XCTAssertEqual(user.userName, "ada")
+        XCTAssertFalse(user.isVip)
+        XCTAssertEqual(user.score, 1.5, accuracy: 0.0001)
+        XCTAssertEqual(user.age, 18)
+        XCTAssertEqual(user.nickname, "lovelace")
+    }
+
+    // MARK: - st_copy deep copy of mutable containers with model values
+
+    func test_st_copy_deep_copies_mutable_array_elements_when_elements_are_models() {
+        let container = STArrayModelContainer()
+        let a = STAddressModel()
+        a.city = "BJ"
+        a.zip = "100"
+
+        container.addressList = NSMutableArray(array: [a])
+        let copy = container.st_copy() as! STArrayModelContainer
+
+        XCTAssertFalse(copy.addressList === container.addressList)
+        let copyA = copy.addressList.firstObject as? STAddressModel
+        let originalA = container.addressList.firstObject as? STAddressModel
+        XCTAssertNotNil(copyA)
+        XCTAssertNotNil(originalA)
+        XCTAssertFalse(copyA === originalA)
+        XCTAssertEqual(copyA?.city, "BJ")
+
+        copyA?.city = "SH"
+        XCTAssertEqual(originalA?.city, "BJ")
+        XCTAssertEqual(copyA?.city, "SH")
+    }
+
+    func test_st_copy_deep_copies_mutable_dictionary_values_when_values_are_models() {
+        let container = STDictionaryModelContainer()
+        let a = STAddressModel()
+        a.city = "BJ"
+        a.zip = "100"
+
+        container.addressByKey["k1"] = a
+        let copy = container.st_copy() as! STDictionaryModelContainer
+
+        XCTAssertFalse(copy.addressByKey === container.addressByKey)
+        let copyA = copy.addressByKey["k1"] as? STAddressModel
+        let originalA = container.addressByKey["k1"] as? STAddressModel
+        XCTAssertNotNil(copyA)
+        XCTAssertNotNil(originalA)
+        XCTAssertFalse(copyA === originalA)
+        XCTAssertEqual(copyA?.city, "BJ")
+
+        copyA?.city = "SH"
+        XCTAssertEqual(originalA?.city, "BJ")
+        XCTAssertEqual(copyA?.city, "SH")
+    }
+
+    // MARK: - description / debugDescription (smoke)
+
+    func test_description_contains_key_information_in_standard_and_flexible_modes() {
+        let standard = STUserModel()
+        standard.userId = 1
+        standard.userName = "alice"
+        standard.isVip = true
+        let standardDesc = standard.description
+        XCTAssertTrue(standardDesc.contains("userId"))
+        XCTAssertTrue(standardDesc.contains("userName"))
+        XCTAssertTrue(standardDesc.contains("isVip"))
+
+        let flexible = STBaseModel()
+        flexible.st_isFlexibleMode = true
+        flexible.st_update(from: ["name": "alice", "age": 30])
+        let flexDesc = flexible.description
+        XCTAssertTrue(flexDesc.contains("name"))
+        XCTAssertTrue(flexDesc.contains("alice"))
+        XCTAssertTrue(flexDesc.contains("age"))
+        XCTAssertTrue(flexDesc.contains("30"))
+    }
 }
 
 // MARK: - Additional Test Models
@@ -416,4 +681,12 @@ final class STNonOptionalRefModel: STBaseModel {
 final class STMutableContainerModel: STBaseModel {
     @objc var items: NSMutableArray = NSMutableArray()
     @objc var mapping: NSMutableDictionary = NSMutableDictionary()
+}
+
+final class STArrayModelContainer: STBaseModel {
+    @objc var addressList: NSMutableArray = NSMutableArray()
+}
+
+final class STDictionaryModelContainer: STBaseModel {
+    @objc var addressByKey: NSMutableDictionary = NSMutableDictionary()
 }
