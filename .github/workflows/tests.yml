@@ -48,8 +48,9 @@ jobs:
           echo "--- STBaseProject ---"
           ls -la STBaseProject
 
+      # 依赖仓脚本：按 CFBundleShortVersionString 选用 /Applications 下版本最高的 Xcode（不绑定 26/27/28）
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_16.app
+        run: bash STBaseProject/.github/scripts/select_xcode_ci.sh
 
       - name: Cache CocoaPods
         uses: actions/cache@v4
