@@ -50,7 +50,7 @@ jobs:
 
       # 依赖仓脚本：按 CFBundleShortVersionString 选用 /Applications 下版本最高的 Xcode（不绑定 26/27/28）
       - name: Select Xcode
-        run: bash STBaseProject/.github/scripts/select_xcode_ci.sh
+        run: bash "${GITHUB_WORKSPACE}/STBaseProject/.github/select_xcode_ci.sh"
 
       - name: Cache CocoaPods
         uses: actions/cache@v4
